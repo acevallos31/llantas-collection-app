@@ -2,11 +2,25 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info.tsx';
 import type { User, Collection, CollectionPoint, Reward } from '../mockData';
 
-const SUPABASE_FUNCTION_NAME = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'server';
-const SUPABASE_ROUTE_PREFIX = import.meta.env.VITE_SUPABASE_ROUTE_PREFIX || 'make-server-b7bf90da';
+const DEFAULT_API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/server`;
 
-const defaultApiBaseUrl = `https://${projectId}.supabase.co/functions/v1/${SUPABASE_FUNCTION_NAME}/${SUPABASE_ROUTE_PREFIX}`;
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || defaultApiBaseUrl;
+const normalizeApiBaseUrl = (rawValue?: string) => {
+  if (!rawValue) return null;
+
+  const unquoted = rawValue.trim().replace(/^['"]|['"]$/g, '');
+
+  try {
+    const parsed = new URL(unquoted);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+};
+
+const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL) || DEFAULT_API_BASE_URL;
 
 console.log('🔧 API Base URL:', API_BASE_URL);
 console.log('🔑 Project ID:', projectId);
