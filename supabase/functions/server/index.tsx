@@ -32,14 +32,14 @@ app.use(
 );
 
 // Health check endpoint
-app.get("/make-server-b7bf90da/health", (c) => {
+app.get("/health", (c) => {
   return c.json({ status: "ok" });
 });
 
 // ==================== AUTH ROUTES ====================
 
 // Sign up
-app.post("/make-server-b7bf90da/auth/signup", async (c) => {
+app.post("/auth/signup", async (c) => {
   try {
     const { email, password, name, phone, type, address } = await c.req.json();
     
@@ -97,7 +97,7 @@ app.post("/make-server-b7bf90da/auth/signup", async (c) => {
 });
 
 // Sign in
-app.post("/make-server-b7bf90da/auth/signin", async (c) => {
+app.post("/auth/signin", async (c) => {
   try {
     const { email, password } = await c.req.json();
     
@@ -128,7 +128,7 @@ app.post("/make-server-b7bf90da/auth/signin", async (c) => {
 });
 
 // Get session
-app.get("/make-server-b7bf90da/auth/session", async (c) => {
+app.get("/auth/session", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     
@@ -155,7 +155,7 @@ app.get("/make-server-b7bf90da/auth/session", async (c) => {
 });
 
 // Sign out
-app.post("/make-server-b7bf90da/auth/signout", async (c) => {
+app.post("/auth/signout", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     
@@ -181,7 +181,7 @@ app.post("/make-server-b7bf90da/auth/signout", async (c) => {
 // ==================== USER ROUTES ====================
 
 // Get user profile
-app.get("/make-server-b7bf90da/users/:userId", async (c) => {
+app.get("/users/:userId", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     const supabase = getSupabaseClient(true);
@@ -207,7 +207,7 @@ app.get("/make-server-b7bf90da/users/:userId", async (c) => {
 });
 
 // Update user profile
-app.put("/make-server-b7bf90da/users/:userId", async (c) => {
+app.put("/users/:userId", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     const supabase = getSupabaseClient(true);
@@ -250,7 +250,7 @@ app.put("/make-server-b7bf90da/users/:userId", async (c) => {
 // ==================== COLLECTION ROUTES ====================
 
 // Get all collections for a user
-app.get("/make-server-b7bf90da/collections", async (c) => {
+app.get("/collections", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     const supabase = getSupabaseClient(true);
@@ -277,7 +277,7 @@ app.get("/make-server-b7bf90da/collections", async (c) => {
 });
 
 // Get a specific collection
-app.get("/make-server-b7bf90da/collections/:collectionId", async (c) => {
+app.get("/collections/:collectionId", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     const supabase = getSupabaseClient(true);
@@ -303,7 +303,7 @@ app.get("/make-server-b7bf90da/collections/:collectionId", async (c) => {
 });
 
 // Create a new collection
-app.post("/make-server-b7bf90da/collections", async (c) => {
+app.post("/collections", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     const supabase = getSupabaseClient(true);
@@ -339,7 +339,7 @@ app.post("/make-server-b7bf90da/collections", async (c) => {
 });
 
 // Update a collection
-app.put("/make-server-b7bf90da/collections/:collectionId", async (c) => {
+app.put("/collections/:collectionId", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     const supabase = getSupabaseClient(true);
@@ -416,7 +416,7 @@ app.put("/make-server-b7bf90da/collections/:collectionId", async (c) => {
 // ==================== COLLECTION POINTS ROUTES ====================
 
 // Get all collection points
-app.get("/make-server-b7bf90da/points", async (c) => {
+app.get("/points", async (c) => {
   try {
     const points = await kv.getByPrefix('point:');
     return c.json(points);
@@ -427,7 +427,7 @@ app.get("/make-server-b7bf90da/points", async (c) => {
 });
 
 // Initialize collection points (seed data)
-app.post("/make-server-b7bf90da/points/seed", async (c) => {
+app.post("/points/seed", async (c) => {
   try {
     const mockPoints = [
       {
@@ -490,7 +490,7 @@ app.post("/make-server-b7bf90da/points/seed", async (c) => {
 // ==================== REWARDS ROUTES ====================
 
 // Get all rewards
-app.get("/make-server-b7bf90da/rewards", async (c) => {
+app.get("/rewards", async (c) => {
   try {
     const rewards = await kv.getByPrefix('reward:');
     return c.json(rewards);
@@ -501,7 +501,7 @@ app.get("/make-server-b7bf90da/rewards", async (c) => {
 });
 
 // Initialize rewards (seed data)
-app.post("/make-server-b7bf90da/rewards/seed", async (c) => {
+app.post("/rewards/seed", async (c) => {
   try {
     const mockRewards = [
       {
@@ -566,7 +566,7 @@ app.post("/make-server-b7bf90da/rewards/seed", async (c) => {
 });
 
 // Redeem a reward
-app.post("/make-server-b7bf90da/rewards/:rewardId/redeem", async (c) => {
+app.post("/rewards/:rewardId/redeem", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     const supabase = getSupabaseClient(true);
@@ -628,7 +628,7 @@ app.post("/make-server-b7bf90da/rewards/:rewardId/redeem", async (c) => {
 // ==================== STATS ROUTES ====================
 
 // Get user stats
-app.get("/make-server-b7bf90da/stats/:userId", async (c) => {
+app.get("/stats/:userId", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     const supabase = getSupabaseClient(true);
@@ -677,7 +677,7 @@ const initStorage = async () => {
 };
 
 // Upload photo
-app.post("/make-server-b7bf90da/upload", async (c) => {
+app.post("/upload", async (c) => {
   try {
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     const supabase = getSupabaseClient(true);
