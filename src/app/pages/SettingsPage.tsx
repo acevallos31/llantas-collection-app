@@ -18,9 +18,11 @@ import {
   ChevronLeft, 
   ChevronRight,
   Bell,
+  BellRing,
   Shield,
   Globe,
   Moon,
+  AlertTriangle,
   HelpCircle,
   FileText,
   LogOut,
@@ -45,6 +47,7 @@ export default function SettingsPage() {
   const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false);
   const [isChangePasswordDialogOpen, setIsChangePasswordDialogOpen] = useState(false);
   const [isDeleteAccountDialogOpen, setIsDeleteAccountDialogOpen] = useState(false);
+  const [isNormativeDialogOpen, setIsNormativeDialogOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
@@ -281,10 +284,13 @@ export default function SettingsPage() {
               <ChevronRight className="w-5 h-5 text-gray-400" />
             </button>
 
-            <button className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors">
+            <button
+              className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+              onClick={() => setIsNormativeDialogOpen(true)}
+            >
               <div className="flex items-center gap-3">
                 <FileText className="w-5 h-5 text-gray-600" />
-                <span className="font-medium">Términos y Condiciones</span>
+                <span className="font-medium">Alertas Normativas</span>
               </div>
               <ChevronRight className="w-5 h-5 text-gray-400" />
             </button>
@@ -374,6 +380,51 @@ export default function SettingsPage() {
             <Button onClick={handleLogout} disabled={isLoggingOut}>
               {isLoggingOut ? 'Cerrando sesión...' : 'Cerrar sesión'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isNormativeDialogOpen}
+        onOpenChange={setIsNormativeDialogOpen}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <BellRing className="w-5 h-5 text-green-600" />
+              Alertas Normativas
+            </DialogTitle>
+            <DialogDescription>
+              Mantente al día con recomendaciones y cambios normativos sobre residuos de llantas.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3 text-sm">
+            <div className="rounded-lg border p-3 bg-amber-50 border-amber-200 text-amber-900">
+              <p className="font-medium flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                Alerta preventiva
+              </p>
+              <p className="mt-1">Evita disposición en zonas no autorizadas y conserva evidencia digital de cada entrega.</p>
+            </div>
+
+            <div className="rounded-lg border p-3">
+              <p className="font-medium">Buenas prácticas de cumplimiento</p>
+              <ul className="mt-2 space-y-1 text-gray-700">
+                <li>• Registrar fecha, cantidad y tipo de llantas en cada operación.</li>
+                <li>• Descargar y almacenar comprobantes digitales para auditorías.</li>
+                <li>• Mantener control de capacidad en acopios temporales.</li>
+              </ul>
+            </div>
+
+            <div className="rounded-lg border p-3 bg-blue-50 border-blue-200 text-blue-900">
+              <p className="font-medium">Última actualización</p>
+              <p className="mt-1">Se reforzó la recomendación de trazabilidad completa desde origen hasta destino final.</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button onClick={() => setIsNormativeDialogOpen(false)}>Entendido</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

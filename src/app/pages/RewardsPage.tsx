@@ -297,6 +297,33 @@ export default function RewardsPage() {
                 Necesitas 550 puntos más para alcanzar el siguiente nivel
               </p>
             </Card>
+
+            <Card className="p-6 mt-4 bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
+              <h3 className="font-bold mb-3">Programas de Beneficios Aliados</h3>
+              <div className="space-y-3 text-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium">EcoLlantas Service</p>
+                    <p className="text-gray-600">Descuentos en mantenimiento para usuarios frecuentes.</p>
+                  </div>
+                  <Badge variant="outline">Aliado</Badge>
+                </div>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium">Red Taller Verde</p>
+                    <p className="text-gray-600">Bonos por cumplimiento continuo en disposición de llantas.</p>
+                  </div>
+                  <Badge variant="outline">Empresarial</Badge>
+                </div>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="font-medium">Plan Impacto Empresarial</p>
+                    <p className="text-gray-600">Beneficios por volumen para compañías con alta trazabilidad.</p>
+                  </div>
+                  <Badge variant="outline">Premium</Badge>
+                </div>
+              </div>
+            </Card>
           </>
         )}
       </div>

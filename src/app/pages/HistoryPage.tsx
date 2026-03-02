@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
-import { collectionsAPI } from '../services/api';
+import { collectionsAPI, statsAPI } from '../services/api';
 import type { Collection } from '../mockData';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
@@ -16,7 +16,10 @@ import {
   Clock,
   XCircle,
   Filter,
-  Loader2
+  Loader2,
+  Download,
+  FileSpreadsheet,
+  Leaf
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -25,6 +28,14 @@ export default function HistoryPage() {
   const { user } = useAuth();
   const [filter, setFilter] = useState<'all' | 'completed' | 'pending' | 'in-progress'>('all');
   const [collections, setCollections] = useState<Collection[]>([]);
+  const [stats, setStats] = useState({
+    totalCollections: 0,
+    totalTires: 0,
+    totalPoints: 0,
+    co2Saved: 0,
+    treesEquivalent: 0,
+    recycledWeight: 0,
+  });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -36,6 +47,11 @@ export default function HistoryPage() {
       setLoading(true);
       const data = await collectionsAPI.getAll();
       setCollections(data || []);
+
+      if (user?.id) {
+        const userStats = await statsAPI.get(user.id);
+        setStats(userStats);
+      }
     } catch (error) {
       console.error('Error loading collections:', error);
       toast.error('Error al cargar historial');
@@ -88,6 +104,71 @@ export default function HistoryPage() {
     }
   };
 
+  const downloadFile = (filename: string, content: string, mimeType = 'text/plain') => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadReceipt = async (collection: Collection) => {
+    try {
+      const trace = await collectionsAPI.getTrace(collection.id);
+      const certificateId = trace?.certificate?.certificateId || `CERT-${collection.id.slice(0, 8).toUpperCase()}`;
+      const lines = [
+        '=== COMPROBANTE DIGITAL DE ENTREGA ===',
+        `Comprobante: ${certificateId}`,
+        `Usuario: ${user?.name || 'N/A'} (${user?.email || 'N/A'})`,
+        `Fecha programada: ${collection.scheduledDate || 'N/A'}`,
+        `Fecha completada: ${collection.completedDate || 'N/A'}`,
+        `Tipo de llanta: ${collection.tireType}`,
+        `Cantidad: ${collection.tireCount}`,
+        `Dirección: ${collection.address}`,
+        `Puntos generados: ${collection.points}`,
+        `QR trazabilidad: ${trace?.qrCode || 'N/A'}`,
+        `Destino final: ${trace?.certificate?.destinationType || 'N/A'}`,
+      ];
+
+      downloadFile(`comprobante-${collection.id}.txt`, lines.join('\n'));
+      toast.success('Comprobante descargado');
+    } catch (error: any) {
+      toast.error(error.message || 'No fue posible descargar el comprobante');
+    }
+  };
+
+  const handleExportReport = () => {
+    const headers = [
+      'id',
+      'fecha_programada',
+      'fecha_completada',
+      'tipo_llanta',
+      'cantidad_llantas',
+      'estado',
+      'direccion',
+      'puntos',
+    ];
+
+    const rows = collections.map((item) => [
+      item.id,
+      item.scheduledDate || '',
+      item.completedDate || '',
+      item.tireType,
+      String(item.tireCount),
+      item.status,
+      item.address.replace(/,/g, ' '),
+      String(item.points),
+    ]);
+
+    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    downloadFile(`reporte-entregas-${new Date().toISOString().slice(0, 10)}.csv`, csv, 'text/csv;charset=utf-8;');
+    toast.success('Reporte descargado');
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* Header */}
@@ -128,6 +209,13 @@ export default function HistoryPage() {
       </div>
 
       <div className="p-4">
+        <div className="flex gap-2 mb-4">
+          <Button variant="outline" className="flex-1" onClick={handleExportReport}>
+            <FileSpreadsheet className="w-4 h-4 mr-2" />
+            Reporte CSV
+          </Button>
+        </div>
+
         {/* Filter Tabs */}
         <Tabs defaultValue="all" className="mb-6" onValueChange={(v) => setFilter(v as any)}>
           <TabsList className="grid w-full grid-cols-4">
@@ -232,8 +320,14 @@ export default function HistoryPage() {
 
                     {collection.status === 'completed' && (
                       <div className="mt-4 pt-4 border-t">
-                        <Button variant="outline" size="sm" className="w-full">
-                          Ver Certificado
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => handleDownloadReceipt(collection)}
+                        >
+                          <Download className="w-4 h-4 mr-2" />
+                          Descargar Comprobante
                         </Button>
                       </div>
                     )}
@@ -248,22 +342,28 @@ export default function HistoryPage() {
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-gray-700">Total recolectado:</span>
-                  <span className="font-semibold">
-                    {collections.reduce((sum, c) => sum + c.tireCount, 0)} llantas
-                  </span>
+                  <span className="font-semibold">{stats.totalTires} llantas</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-700">Puntos ganados:</span>
-                  <span className="font-semibold text-green-600">
-                    {collections.reduce((sum, c) => sum + c.points, 0)} puntos
-                  </span>
+                  <span className="font-semibold text-green-600">{stats.totalPoints} puntos</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-700">Impacto ambiental:</span>
-                  <span className="font-semibold text-emerald-600">
-                    {(collections.reduce((sum, c) => sum + c.tireCount, 0) * 15).toFixed(0)} kg CO₂
-                  </span>
+                  <span className="font-semibold text-emerald-600">{stats.co2Saved.toFixed(0)} kg CO₂</span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Peso reciclado:</span>
+                  <span className="font-semibold text-emerald-700">{stats.recycledWeight.toFixed(0)} kg</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Árboles equivalentes:</span>
+                  <span className="font-semibold text-emerald-800">{stats.treesEquivalent}</span>
+                </div>
+              </div>
+              <div className="mt-4 p-3 bg-white/70 rounded-lg text-sm text-emerald-800 flex items-center gap-2">
+                <Leaf className="w-4 h-4" />
+                Reporte apto para soporte de cumplimiento empresarial.
               </div>
             </Card>
           </>
