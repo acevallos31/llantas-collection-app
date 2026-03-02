@@ -2,7 +2,11 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info.tsx';
 import type { User, Collection, CollectionPoint, Reward } from '../mockData';
 
-const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-b7bf90da`;
+const SUPABASE_FUNCTION_NAME = import.meta.env.VITE_SUPABASE_FUNCTION_NAME || 'server';
+const SUPABASE_ROUTE_PREFIX = import.meta.env.VITE_SUPABASE_ROUTE_PREFIX || 'make-server-b7bf90da';
+
+const defaultApiBaseUrl = `https://${projectId}.supabase.co/functions/v1/${SUPABASE_FUNCTION_NAME}/${SUPABASE_ROUTE_PREFIX}`;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || defaultApiBaseUrl;
 
 console.log('🔧 API Base URL:', API_BASE_URL);
 console.log('🔑 Project ID:', projectId);
@@ -114,6 +118,41 @@ export const authAPI = {
       localStorage.removeItem(ACCESS_TOKEN_KEY);
       localStorage.removeItem(USER_KEY);
     }
+  },
+
+  async changePassword(currentPassword: string, newPassword: string) {
+    const response = await fetch(`${API_BASE_URL}/auth/change-password`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Error al cambiar la contraseña');
+    }
+
+    return result;
+  },
+
+  async deleteAccount(currentPassword: string) {
+    const response = await fetch(`${API_BASE_URL}/auth/delete-account`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({ currentPassword }),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Error al eliminar la cuenta');
+    }
+
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+
+    return result;
   },
   
   getCurrentUser(): User | null {

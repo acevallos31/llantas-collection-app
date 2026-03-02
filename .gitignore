@@ -3,3 +3,9 @@ dist
 .env
 .env.*
 .DS_Store
+
+# Local env
+.vs/
+supabase/.temp/
+supabase/.branches/
+env .env

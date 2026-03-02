@@ -4,6 +4,16 @@ import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Switch } from '../components/ui/switch';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
 import { 
   ChevronLeft, 
   ChevronRight,
@@ -22,7 +32,7 @@ import { toast } from 'sonner';
 
 export default function SettingsPage() {
   const navigate = useNavigate();
-  const { signout, user } = useAuth();
+  const { signout, changePassword, deleteAccount, user } = useAuth();
   const [notifications, setNotifications] = useState({
     collections: true,
     rewards: true,
@@ -30,24 +40,78 @@ export default function SettingsPage() {
     marketing: false,
   });
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [isLogoutDialogOpen, setIsLogoutDialogOpen] = useState(false);
+  const [isChangePasswordDialogOpen, setIsChangePasswordDialogOpen] = useState(false);
+  const [isDeleteAccountDialogOpen, setIsDeleteAccountDialogOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [deletePassword, setDeletePassword] = useState('');
 
   const handleLogout = async () => {
-    if (confirm('¿Estás seguro de que quieres cerrar sesión?')) {
-      try {
-        setIsLoggingOut(true);
-        await signout();
-        toast.success('Sesión cerrada exitosamente');
-        navigate('/', { replace: true });
-      } catch (error) {
-        toast.error('Error al cerrar sesión');
-        setIsLoggingOut(false);
-      }
+    try {
+      setIsLoggingOut(true);
+      await signout();
+      toast.success('Sesión cerrada exitosamente');
+      setIsLogoutDialogOpen(false);
+      navigate('/', { replace: true });
+    } catch (error) {
+      toast.error('Error al cerrar sesión');
+    } finally {
+      setIsLoggingOut(false);
     }
   };
 
-  const handleDeleteAccount = () => {
-    if (confirm('¿Estás seguro de que quieres eliminar tu cuenta? Esta acción no se puede deshacer.')) {
-      alert('Para eliminar tu cuenta, por favor contacta a soporte. Esta función estará disponible próximamente.');
+  const handleDeleteAccount = async () => {
+    if (!deletePassword) {
+      toast.error('Debes ingresar tu contraseña actual');
+      return;
+    }
+
+    setIsDeletingAccount(true);
+    try {
+      await deleteAccount(deletePassword);
+      toast.success('Cuenta eliminada exitosamente');
+      setDeletePassword('');
+      setIsDeleteAccountDialogOpen(false);
+      navigate('/', { replace: true });
+    } catch (error: any) {
+      toast.error(error.message || 'Error al eliminar la cuenta');
+    } finally {
+      setIsDeletingAccount(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!currentPassword || !newPassword || !confirmNewPassword) {
+      toast.error('Completa todos los campos');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast.error('La nueva contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+
+    if (newPassword !== confirmNewPassword) {
+      toast.error('Las contraseñas no coinciden');
+      return;
+    }
+
+    setIsChangingPassword(true);
+    try {
+      await changePassword(currentPassword, newPassword);
+      toast.success('Contraseña actualizada exitosamente');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      setIsChangePasswordDialogOpen(false);
+    } catch (error: any) {
+      toast.error(error.message || 'Error al cambiar la contraseña');
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
@@ -88,11 +152,19 @@ export default function SettingsPage() {
             </button>
 
             <button
-              className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+              onClick={() => setIsChangePasswordDialogOpen(true)}
+              disabled={isChangingPassword}
+              className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors disabled:opacity-50"
             >
               <div className="flex items-center gap-3">
-                <Shield className="w-5 h-5 text-gray-600" />
-                <span className="font-medium">Privacidad y Seguridad</span>
+                {isChangingPassword ? (
+                  <Loader2 className="w-5 h-5 text-gray-600 animate-spin" />
+                ) : (
+                  <Shield className="w-5 h-5 text-gray-600" />
+                )}
+                <span className="font-medium">
+                  {isChangingPassword ? 'Cambiando contraseña...' : 'Cambiar Contraseña'}
+                </span>
               </div>
               <ChevronRight className="w-5 h-5 text-gray-400" />
             </button>
@@ -232,7 +304,7 @@ export default function SettingsPage() {
           <h2 className="text-sm font-semibold text-gray-500 mb-3 px-1">ACCIONES</h2>
           <Card className="divide-y">
             <button
-              onClick={handleLogout}
+              onClick={() => setIsLogoutDialogOpen(true)}
               disabled={isLoggingOut}
               className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors disabled:opacity-50"
             >
@@ -250,12 +322,19 @@ export default function SettingsPage() {
             </button>
 
             <button
-              onClick={handleDeleteAccount}
-              className="w-full flex items-center justify-between p-4 hover:bg-red-50 transition-colors"
+              onClick={() => setIsDeleteAccountDialogOpen(true)}
+              disabled={isDeletingAccount}
+              className="w-full flex items-center justify-between p-4 hover:bg-red-50 transition-colors disabled:opacity-50"
             >
               <div className="flex items-center gap-3">
-                <Trash2 className="w-5 h-5 text-red-600" />
-                <span className="font-medium text-red-600">Eliminar Cuenta</span>
+                {isDeletingAccount ? (
+                  <Loader2 className="w-5 h-5 text-red-600 animate-spin" />
+                ) : (
+                  <Trash2 className="w-5 h-5 text-red-600" />
+                )}
+                <span className="font-medium text-red-600">
+                  {isDeletingAccount ? 'Eliminando cuenta...' : 'Eliminar Cuenta'}
+                </span>
               </div>
               <ChevronRight className="w-5 h-5 text-gray-400" />
             </button>
@@ -269,6 +348,153 @@ export default function SettingsPage() {
           <p>© 2026 Todos los derechos reservados</p>
         </div>
       </div>
+
+      <Dialog
+        open={isLogoutDialogOpen}
+        onOpenChange={(open) => {
+          setIsLogoutDialogOpen(open);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cerrar Sesión</DialogTitle>
+            <DialogDescription>
+              ¿Estás seguro de que quieres cerrar sesión?
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsLogoutDialogOpen(false)}
+              disabled={isLoggingOut}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleLogout} disabled={isLoggingOut}>
+              {isLoggingOut ? 'Cerrando sesión...' : 'Cerrar sesión'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isChangePasswordDialogOpen}
+        onOpenChange={(open) => {
+          setIsChangePasswordDialogOpen(open);
+          if (!open) {
+            setCurrentPassword('');
+            setNewPassword('');
+            setConfirmNewPassword('');
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cambiar Contraseña</DialogTitle>
+            <DialogDescription>
+              Ingresa tu contraseña actual y define una nueva contraseña.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="current-password">Contraseña actual</Label>
+              <Input
+                id="current-password"
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                disabled={isChangingPassword}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="new-password">Nueva contraseña</Label>
+              <Input
+                id="new-password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                disabled={isChangingPassword}
+                minLength={6}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="confirm-new-password">Confirmar nueva contraseña</Label>
+              <Input
+                id="confirm-new-password"
+                type="password"
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                disabled={isChangingPassword}
+                minLength={6}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsChangePasswordDialogOpen(false)}
+              disabled={isChangingPassword}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleChangePassword} disabled={isChangingPassword}>
+              {isChangingPassword ? 'Guardando...' : 'Actualizar contraseña'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={isDeleteAccountDialogOpen}
+        onOpenChange={(open) => {
+          setIsDeleteAccountDialogOpen(open);
+          if (!open) {
+            setDeletePassword('');
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Eliminar Cuenta</DialogTitle>
+            <DialogDescription>
+              Esta acción no se puede deshacer. Ingresa tu contraseña para confirmar.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-1">
+            <Label htmlFor="delete-password">Contraseña actual</Label>
+            <Input
+              id="delete-password"
+              type="password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              disabled={isDeletingAccount}
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsDeleteAccountDialogOpen(false)}
+              disabled={isDeletingAccount}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteAccount}
+              disabled={isDeletingAccount}
+            >
+              {isDeletingAccount ? 'Eliminando...' : 'Eliminar cuenta'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

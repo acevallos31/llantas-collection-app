@@ -16,6 +16,8 @@ interface AuthContextType {
     address?: string;
   }) => Promise<void>;
   signout: () => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  deleteAccount: (currentPassword: string) => Promise<void>;
   refreshUser: () => Promise<void>;
   clearError: () => void;
 }
@@ -118,6 +120,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const changePassword = async (currentPassword: string, newPassword: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+      await authAPI.changePassword(currentPassword, newPassword);
+    } catch (err: any) {
+      setError(err.message || 'Error al cambiar la contraseña');
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteAccount = async (currentPassword: string) => {
+    try {
+      setLoading(true);
+      setError(null);
+      await authAPI.deleteAccount(currentPassword);
+      setUser(null);
+    } catch (err: any) {
+      setError(err.message || 'Error al eliminar la cuenta');
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const refreshUser = async () => {
     if (!user) return;
     
@@ -140,6 +169,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     signin,
     signup,
     signout,
+    changePassword,
+    deleteAccount,
     refreshUser,
     clearError,
   };
