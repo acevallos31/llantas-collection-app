@@ -46,6 +46,22 @@ const withPointStatus = (point: any) => {
   };
 };
 
+const findCollectionById = async (collectionId: string) => {
+  const collections = await kv.getByPrefix('collection:');
+  return collections.find((item: any) => item.id === collectionId) || null;
+};
+
+const findCollectionKeyById = async (collectionId: string) => {
+  const keys = await kv.getKeysByPrefix('collection:');
+  for (const key of keys) {
+    const value = await kv.get(key);
+    if (value?.id === collectionId) {
+      return { key, value };
+    }
+  }
+  return null;
+};
+
 // Supabase client helper
 const getSupabaseClient = (serviceRole = false) => {
   return createClient(
@@ -414,8 +430,13 @@ app.get("/server/collections", async (c) => {
       return c.json({ error: 'Unauthorized' }, 401);
     }
     
-    // Get all collections for this user
-    const collections = await kv.getByPrefix(`collection:${user.id}:`);
+    const userProfile = await kv.get(`user:${user.id}`);
+    const isCollector = userProfile?.type === 'collector';
+
+    // Collectors see global board; generators see only their own collections.
+    const collections = isCollector
+      ? await kv.getByPrefix('collection:')
+      : await kv.getByPrefix(`collection:${user.id}:`);
     
     // Sort by date (most recent first)
     collections.sort((a: any, b: any) => {
@@ -442,7 +463,12 @@ app.get("/server/collections/:collectionId", async (c) => {
     }
     
     const collectionId = c.req.param('collectionId');
-    const collection = await kv.get(`collection:${user.id}:${collectionId}`);
+    const userProfile = await kv.get(`user:${user.id}`);
+    const isCollector = userProfile?.type === 'collector';
+
+    const collection = isCollector
+      ? await findCollectionById(collectionId)
+      : await kv.get(`collection:${user.id}:${collectionId}`);
     
     if (!collection) {
       return c.json({ error: 'Collection not found' }, 404);
@@ -467,6 +493,11 @@ app.post("/server/collections", async (c) => {
       return c.json({ error: 'Unauthorized' }, 401);
     }
     
+    const userProfile = await kv.get(`user:${user.id}`);
+    if (userProfile?.type === 'collector') {
+      return c.json({ error: 'Collectors cannot create collections' }, 403);
+    }
+
     const collectionData = await c.req.json();
     const collectionId = crypto.randomUUID();
     
@@ -518,19 +549,43 @@ app.put("/server/collections/:collectionId", async (c) => {
     
     const collectionId = c.req.param('collectionId');
     const updates = await c.req.json();
-    
-    const currentCollection = await kv.get(`collection:${user.id}:${collectionId}`);
+    const userProfile = await kv.get(`user:${user.id}`);
+    const isCollector = userProfile?.type === 'collector';
+
+    let currentCollection: any = null;
+    let collectionKey = `collection:${user.id}:${collectionId}`;
+
+    if (isCollector) {
+      const found = await findCollectionKeyById(collectionId);
+      currentCollection = found?.value || null;
+      collectionKey = found?.key || collectionKey;
+    } else {
+      currentCollection = await kv.get(collectionKey);
+    }
     
     if (!currentCollection) {
       return c.json({ error: 'Collection not found' }, 404);
+    }
+
+    if (!isCollector && updates.status && updates.status !== currentCollection.status) {
+      return c.json({ error: 'Generators cannot change collection status' }, 403);
+    }
+
+    if (isCollector && updates.status && !['in-progress', 'completed', 'cancelled'].includes(updates.status)) {
+      return c.json({ error: 'Invalid status for collector update' }, 400);
     }
     
     const updatedCollection = {
       ...currentCollection,
       ...updates,
       id: collectionId,
-      userId: user.id,
+      userId: currentCollection.userId,
     };
+
+    if (isCollector) {
+      updatedCollection.collectorId = user.id;
+      updatedCollection.collectorName = userProfile?.name || 'Recolector';
+    }
 
     const traceability = {
       qrCode: currentCollection?.traceability?.qrCode || generateQrCode(user.id, collectionId),
@@ -555,37 +610,37 @@ app.put("/server/collections/:collectionId", async (c) => {
     
     // If collection is being completed, update user points and stats
     if (updates.status === 'completed' && currentCollection.status !== 'completed') {
-      const userProfile = await kv.get(`user:${user.id}`);
-      const stats = await kv.get(`stats:${user.id}`);
+      const collectionOwnerProfile = await kv.get(`user:${updatedCollection.userId}`);
+      const stats = await kv.get(`stats:${updatedCollection.userId}`);
       
-      if (userProfile && stats) {
+      if (collectionOwnerProfile && stats) {
         // Update user points
-        userProfile.points += updatedCollection.points;
+        collectionOwnerProfile.points += updatedCollection.points;
         
         // Update level based on points
-        if (userProfile.points >= 1000) {
-          userProfile.level = 'Eco Master';
-        } else if (userProfile.points >= 500) {
-          userProfile.level = 'Eco Champion';
-        } else if (userProfile.points >= 200) {
-          userProfile.level = 'Eco Warrior';
-        } else if (userProfile.points >= 50) {
-          userProfile.level = 'Eco Guardian';
+        if (collectionOwnerProfile.points >= 1000) {
+          collectionOwnerProfile.level = 'Eco Master';
+        } else if (collectionOwnerProfile.points >= 500) {
+          collectionOwnerProfile.level = 'Eco Champion';
+        } else if (collectionOwnerProfile.points >= 200) {
+          collectionOwnerProfile.level = 'Eco Warrior';
+        } else if (collectionOwnerProfile.points >= 50) {
+          collectionOwnerProfile.level = 'Eco Guardian';
         } else {
-          userProfile.level = 'Eco Novato';
+          collectionOwnerProfile.level = 'Eco Novato';
         }
         
-        await kv.set(`user:${user.id}`, userProfile);
+        await kv.set(`user:${updatedCollection.userId}`, collectionOwnerProfile);
         
         // Update stats
         stats.totalCollections += 1;
         stats.totalTires += updatedCollection.tireCount;
-        stats.totalPoints = userProfile.points;
+        stats.totalPoints = collectionOwnerProfile.points;
         stats.co2Saved += updatedCollection.tireCount * 3.25; // kg per tire
         stats.treesEquivalent = Math.floor(stats.co2Saved / 20);
         stats.recycledWeight += updatedCollection.tireCount * 5; // kg per tire
         
-        await kv.set(`stats:${user.id}`, stats);
+        await kv.set(`stats:${updatedCollection.userId}`, stats);
       }
       
       const destinationType = normalizeDestinationType(updates.destinationType);
@@ -617,7 +672,7 @@ app.put("/server/collections/:collectionId", async (c) => {
       await kv.set(`certificate:${collectionId}`, updatedCollection.complianceCertificate);
     }
     
-    await kv.set(`collection:${user.id}:${collectionId}`, updatedCollection);
+    await kv.set(collectionKey, updatedCollection);
     
     return c.json(updatedCollection);
     

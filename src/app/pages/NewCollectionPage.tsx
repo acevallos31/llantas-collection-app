@@ -21,7 +21,7 @@ import { toast } from 'sonner';
 
 export default function NewCollectionPage() {
   const navigate = useNavigate();
-  const { refreshUser } = useAuth();
+  const { refreshUser, user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   
@@ -31,6 +31,23 @@ export default function NewCollectionPage() {
   const [scheduledDate, setScheduledDate] = useState('');
   const [description, setDescription] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
+
+  if (user?.type === 'collector') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <Card className="max-w-md w-full p-6 text-center space-y-4">
+          <Package className="w-10 h-10 mx-auto text-green-600" />
+          <h2 className="text-xl font-bold">Acción no disponible</h2>
+          <p className="text-gray-600 text-sm">
+            Las cuentas recolectoras no pueden crear solicitudes de recolección.
+          </p>
+          <Button onClick={() => navigate('/home')} className="w-full bg-green-600 hover:bg-green-700">
+            Volver al inicio
+          </Button>
+        </Card>
+      </div>
+    );
+  }
 
   const tireTypes = [
     'Automóvil',

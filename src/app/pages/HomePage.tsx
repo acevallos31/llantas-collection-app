@@ -11,6 +11,7 @@ import type { CollectionPoint, Collection } from '../mockData';
 export default function HomePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const isCollector = user?.type === 'collector';
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [collectionPoints, setCollectionPoints] = useState<CollectionPoint[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -70,7 +71,9 @@ export default function HomePage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold">Hola, {user.name.split(' ')[0]} 👋</h1>
-            <p className="text-green-100 text-sm">{user.level} - {user.points} puntos</p>
+            <p className="text-green-100 text-sm">
+              {isCollector ? 'Recolector' : `${user.level} - ${user.points} puntos`}
+            </p>
           </div>
           <Button
             variant="ghost"
@@ -107,13 +110,23 @@ export default function HomePage() {
       <div className="p-4">
         {/* Action Buttons */}
         <div className="flex gap-3 mb-6">
-          <Button
-            className="flex-1 bg-green-600 hover:bg-green-700"
-            onClick={() => navigate('/new-collection')}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Nueva Recolección
-          </Button>
+          {isCollector ? (
+            <Button
+              className="flex-1 bg-green-600 hover:bg-green-700"
+              onClick={() => setViewMode('list')}
+            >
+              <Package className="w-4 h-4 mr-2" />
+              Gestionar Recolecciones
+            </Button>
+          ) : (
+            <Button
+              className="flex-1 bg-green-600 hover:bg-green-700"
+              onClick={() => navigate('/new-collection')}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Nueva Recolección
+            </Button>
+          )}
           <Button variant="outline" size="icon">
             <Filter className="w-4 h-4" />
           </Button>
@@ -222,17 +235,23 @@ export default function HomePage() {
           <>
             {/* Mis Recolecciones */}
             <div>
-              <h2 className="text-lg font-bold mb-3">Mis Recolecciones</h2>
+              <h2 className="text-lg font-bold mb-3">
+                {isCollector ? 'Recolecciones por Gestionar' : 'Mis Recolecciones'}
+              </h2>
               {collections.length === 0 ? (
                 <Card className="p-8 text-center">
                   <Package className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-                  <p className="text-gray-500 mb-4">No tienes recolecciones aún</p>
-                  <Button 
-                    className="bg-green-600 hover:bg-green-700"
-                    onClick={() => navigate('/new-collection')}
-                  >
-                    Crear tu primera recolección
-                  </Button>
+                  <p className="text-gray-500 mb-4">
+                    {isCollector ? 'No hay recolecciones para gestionar' : 'No tienes recolecciones aún'}
+                  </p>
+                  {!isCollector && (
+                    <Button
+                      className="bg-green-600 hover:bg-green-700"
+                      onClick={() => navigate('/new-collection')}
+                    >
+                      Crear tu primera recolección
+                    </Button>
+                  )}
                 </Card>
               ) : (
                 <div className="space-y-3">
