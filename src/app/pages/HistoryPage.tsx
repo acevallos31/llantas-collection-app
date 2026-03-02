@@ -1,0 +1,274 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router';
+import { useAuth } from '../contexts/AuthContext';
+import { collectionsAPI } from '../services/api';
+import type { Collection } from '../mockData';
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Badge } from '../components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import { 
+  ChevronLeft, 
+  Package, 
+  Calendar,
+  MapPin,
+  CheckCircle2,
+  Clock,
+  XCircle,
+  Filter,
+  Loader2
+} from 'lucide-react';
+import { toast } from 'sonner';
+
+export default function HistoryPage() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const [filter, setFilter] = useState<'all' | 'completed' | 'pending' | 'in-progress'>('all');
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadCollections();
+  }, []);
+
+  const loadCollections = async () => {
+    try {
+      setLoading(true);
+      const data = await collectionsAPI.getAll();
+      setCollections(data || []);
+    } catch (error) {
+      console.error('Error loading collections:', error);
+      toast.error('Error al cargar historial');
+      setCollections([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredCollections = collections.filter(collection => 
+    filter === 'all' ? true : collection.status === filter
+  );
+
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return <CheckCircle2 className="w-5 h-5 text-green-600" />;
+      case 'in-progress':
+        return <Clock className="w-5 h-5 text-blue-600" />;
+      case 'cancelled':
+        return <XCircle className="w-5 h-5 text-red-600" />;
+      default:
+        return <Package className="w-5 h-5 text-orange-600" />;
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'bg-green-100';
+      case 'in-progress':
+        return 'bg-blue-100';
+      case 'cancelled':
+        return 'bg-red-100';
+      default:
+        return 'bg-orange-100';
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'completed':
+        return 'Completada';
+      case 'in-progress':
+        return 'En Proceso';
+      case 'cancelled':
+        return 'Cancelada';
+      default:
+        return 'Pendiente';
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 pb-20">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-green-600 to-emerald-600 text-white p-6 rounded-b-3xl">
+        <div className="flex items-center gap-4 mb-6">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => navigate(-1)}
+            className="text-white hover:bg-white/20"
+          >
+            <ChevronLeft className="w-6 h-6" />
+          </Button>
+          <h1 className="text-xl font-bold">Historial</h1>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-3">
+          <Card className="bg-white/10 backdrop-blur border-white/20 p-3 text-center">
+            <div className="text-2xl font-bold">
+              {collections.filter(c => c.status === 'completed').length}
+            </div>
+            <div className="text-xs text-green-100">Completadas</div>
+          </Card>
+          <Card className="bg-white/10 backdrop-blur border-white/20 p-3 text-center">
+            <div className="text-2xl font-bold">
+              {collections.filter(c => c.status === 'in-progress').length}
+            </div>
+            <div className="text-xs text-green-100">En Proceso</div>
+          </Card>
+          <Card className="bg-white/10 backdrop-blur border-white/20 p-3 text-center">
+            <div className="text-2xl font-bold">
+              {collections.filter(c => c.status === 'pending').length}
+            </div>
+            <div className="text-xs text-green-100">Pendientes</div>
+          </Card>
+        </div>
+      </div>
+
+      <div className="p-4">
+        {/* Filter Tabs */}
+        <Tabs defaultValue="all" className="mb-6" onValueChange={(v) => setFilter(v as any)}>
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="all" className="text-xs">Todas</TabsTrigger>
+            <TabsTrigger value="completed" className="text-xs">Completadas</TabsTrigger>
+            <TabsTrigger value="in-progress" className="text-xs">En Proceso</TabsTrigger>
+            <TabsTrigger value="pending" className="text-xs">Pendientes</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        {/* Loading State */}
+        {loading ? (
+          <div className="flex justify-center items-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-green-600" />
+          </div>
+        ) : (
+          <>
+            {/* Collections List */}
+            <div className="space-y-4">
+              {filteredCollections.length === 0 ? (
+                <Card className="p-8 text-center">
+                  <Package className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+                  <p className="text-gray-600">No hay recolecciones en esta categoría</p>
+                </Card>
+              ) : (
+                filteredCollections.map((collection) => (
+                  <Card key={collection.id} className="p-4 hover:shadow-lg transition-shadow cursor-pointer">
+                    <div className="flex gap-4">
+                      {/* Icon */}
+                      <div className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 ${getStatusColor(collection.status)}`}>
+                        {getStatusIcon(collection.status)}
+                      </div>
+
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <h3 className="font-semibold">{collection.tireType}</h3>
+                          <Badge variant={
+                            collection.status === 'completed' ? 'default' :
+                            collection.status === 'in-progress' ? 'secondary' :
+                            'outline'
+                          }>
+                            {getStatusLabel(collection.status)}
+                          </Badge>
+                        </div>
+
+                        <div className="space-y-2 text-sm text-gray-600">
+                          <div className="flex items-center gap-2">
+                            <Package className="w-4 h-4 flex-shrink-0" />
+                            <span>{collection.tireCount} llantas</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <MapPin className="w-4 h-4 flex-shrink-0" />
+                            <span className="truncate">{collection.address}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 flex-shrink-0" />
+                            <span>
+                              {collection.scheduledDate && 
+                                new Date(collection.scheduledDate).toLocaleDateString('es-CO', {
+                                  day: 'numeric',
+                                  month: 'long',
+                                  year: 'numeric'
+                                })
+                              }
+                            </span>
+                          </div>
+                        </div>
+
+                        {collection.description && (
+                          <p className="text-sm text-gray-500 mt-2 line-clamp-2">
+                            {collection.description}
+                          </p>
+                        )}
+
+                        {/* Points */}
+                        <div className="mt-3 flex items-center justify-between">
+                          <span className="text-sm text-gray-500">
+                            {collection.completedDate ? 
+                              `Completada: ${new Date(collection.completedDate).toLocaleDateString('es-CO')}` :
+                              'Programada'
+                            }
+                          </span>
+                          <span className="text-green-600 font-semibold">
+                            +{collection.points} puntos
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons */}
+                    {collection.status === 'pending' && (
+                      <div className="mt-4 pt-4 border-t flex gap-2">
+                        <Button variant="outline" size="sm" className="flex-1">
+                          Cancelar
+                        </Button>
+                        <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-700">
+                          Ver Detalles
+                        </Button>
+                      </div>
+                    )}
+
+                    {collection.status === 'completed' && (
+                      <div className="mt-4 pt-4 border-t">
+                        <Button variant="outline" size="sm" className="w-full">
+                          Ver Certificado
+                        </Button>
+                      </div>
+                    )}
+                  </Card>
+                ))
+              )}
+            </div>
+
+            {/* Monthly Summary */}
+            <Card className="p-6 mt-6 bg-gradient-to-br from-green-50 to-emerald-50">
+              <h3 className="font-bold mb-4">Resumen del Mes</h3>
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Total recolectado:</span>
+                  <span className="font-semibold">
+                    {collections.reduce((sum, c) => sum + c.tireCount, 0)} llantas
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Puntos ganados:</span>
+                  <span className="font-semibold text-green-600">
+                    {collections.reduce((sum, c) => sum + c.points, 0)} puntos
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-700">Impacto ambiental:</span>
+                  <span className="font-semibold text-emerald-600">
+                    {(collections.reduce((sum, c) => sum + c.tireCount, 0) * 15).toFixed(0)} kg CO₂
+                  </span>
+                </div>
+              </div>
+            </Card>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
