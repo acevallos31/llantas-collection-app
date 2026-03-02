@@ -292,6 +292,56 @@ export const collectionsAPI = {
     
     return result;
   },
+
+  async getTrace(collectionId: string): Promise<{
+    collectionId: string;
+    qrCode: string;
+    currentStage: string;
+    events: any[];
+    certificate: any;
+  }> {
+    const response = await fetch(`${API_BASE_URL}/collections/${collectionId}/trace`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Error al obtener trazabilidad');
+    }
+
+    return result;
+  },
+};
+
+export const kioskAPI = {
+  async registerDelivery(data: {
+    pointId: string;
+    tireCount: number;
+    tireType?: string;
+    collectionId?: string;
+    generatorName?: string;
+    generatorDocument?: string;
+  }): Promise<{
+    message: string;
+    receipt: any;
+    point: any;
+  }> {
+    const response = await fetch(`${API_BASE_URL}/kiosk/deliveries`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(data),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Error al registrar entrega en kiosco');
+    }
+
+    return result;
+  },
 };
 
 // ==================== POINTS API ====================

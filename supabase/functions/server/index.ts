@@ -6,6 +6,46 @@ import * as kv from "./kv_store.tsx";
 
 const app = new Hono();
 
+const generateQrCode = (userId: string, collectionId: string) => {
+  return `ECOL-${userId.slice(0, 8).toUpperCase()}-${collectionId.slice(0, 8).toUpperCase()}`;
+};
+
+const createTraceEvent = (
+  stage: string,
+  actorType: string,
+  note: string,
+  metadata: Record<string, any> = {},
+) => ({
+  id: crypto.randomUUID(),
+  stage,
+  actorType,
+  note,
+  metadata,
+  timestamp: new Date().toISOString(),
+});
+
+const normalizeDestinationType = (value?: string) => {
+  if (!value) return 'acopio';
+  const normalized = value.toLowerCase();
+  if (normalized === 'recycling' || normalized === 'reciclaje') return 'reciclaje';
+  if (normalized === 'coprocessing' || normalized === 'coprocesamiento') return 'coprocesamiento';
+  return 'acopio';
+};
+
+const withPointStatus = (point: any) => {
+  const currentLoad = Number(point.currentLoad || 0);
+  const capacity = Number(point.capacity || 0);
+  const availableCapacity = Math.max(capacity - currentLoad, 0);
+  return {
+    ...point,
+    currentLoad,
+    capacity,
+    availableCapacity,
+    occupancyRate: capacity > 0 ? Number(((currentLoad / capacity) * 100).toFixed(2)) : 0,
+    isAvailable: availableCapacity > 0,
+  };
+};
+
 // Supabase client helper
 const getSupabaseClient = (serviceRole = false) => {
   return createClient(
@@ -433,6 +473,7 @@ app.post("/server/collections", async (c) => {
     // Calculate points (30 points per tire)
     const points = collectionData.tireCount * 30;
     
+    const qrCode = generateQrCode(user.id, collectionId);
     const collection = {
       id: collectionId,
       userId: user.id,
@@ -440,6 +481,18 @@ app.post("/server/collections", async (c) => {
       points,
       status: 'pending',
       createdAt: new Date().toISOString(),
+      traceability: {
+        qrCode,
+        currentStage: 'registrada',
+        events: [
+          createTraceEvent(
+            'registrada',
+            'generator',
+            'Lote registrado en EcolLantApp',
+            { userId: user.id, tireCount: collectionData.tireCount },
+          ),
+        ],
+      },
     };
     
     await kv.set(`collection:${user.id}:${collectionId}`, collection);
@@ -478,6 +531,27 @@ app.put("/server/collections/:collectionId", async (c) => {
       id: collectionId,
       userId: user.id,
     };
+
+    const traceability = {
+      qrCode: currentCollection?.traceability?.qrCode || generateQrCode(user.id, collectionId),
+      currentStage: currentCollection?.traceability?.currentStage || 'registrada',
+      events: currentCollection?.traceability?.events || [],
+    };
+
+    if (updates.status && updates.status !== currentCollection.status) {
+      const nextStage = updates.status === 'completed' ? 'destino-final' : 'en-proceso';
+      traceability.currentStage = nextStage;
+      traceability.events.push(
+        createTraceEvent(
+          nextStage,
+          'system',
+          `Cambio de estado: ${currentCollection.status} -> ${updates.status}`,
+          { status: updates.status },
+        ),
+      );
+    }
+
+    updatedCollection.traceability = traceability;
     
     // If collection is being completed, update user points and stats
     if (updates.status === 'completed' && currentCollection.status !== 'completed') {
@@ -514,7 +588,33 @@ app.put("/server/collections/:collectionId", async (c) => {
         await kv.set(`stats:${user.id}`, stats);
       }
       
+      const destinationType = normalizeDestinationType(updates.destinationType);
+      const certificateId = `CERT-${collectionId.slice(0, 8).toUpperCase()}`;
+
       updatedCollection.completedDate = new Date().toISOString();
+      updatedCollection.destinationType = destinationType;
+      updatedCollection.complianceCertificate = {
+        certificateId,
+        qrCode: traceability.qrCode,
+        destinationType,
+        issuedAt: new Date().toISOString(),
+      };
+
+      traceability.currentStage = 'certificada';
+      traceability.events.push(
+        createTraceEvent(
+          'certificada',
+          'system',
+          'Certificación digital emitida para disposición final',
+          {
+            certificateId,
+            destinationType,
+            qrCode: traceability.qrCode,
+          },
+        ),
+      );
+
+      await kv.set(`certificate:${collectionId}`, updatedCollection.complianceCertificate);
     }
     
     await kv.set(`collection:${user.id}:${collectionId}`, updatedCollection);
@@ -527,13 +627,143 @@ app.put("/server/collections/:collectionId", async (c) => {
   }
 });
 
+// Get traceability report for a collection
+app.get("/server/collections/:collectionId/trace", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user } } = await supabase.auth.getUser(accessToken);
+
+    if (!user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const collectionId = c.req.param('collectionId');
+    const collection = await kv.get(`collection:${user.id}:${collectionId}`);
+
+    if (!collection) {
+      return c.json({ error: 'Collection not found' }, 404);
+    }
+
+    return c.json({
+      collectionId,
+      qrCode: collection?.traceability?.qrCode,
+      currentStage: collection?.traceability?.currentStage,
+      events: collection?.traceability?.events || [],
+      certificate: collection?.complianceCertificate || null,
+    });
+  } catch (error) {
+    console.log(`Traceability report error: ${error}`);
+    return c.json({ error: 'Error getting traceability report' }, 500);
+  }
+});
+
+// Register kiosk delivery in collection center
+app.post("/server/kiosk/deliveries", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user } } = await supabase.auth.getUser(accessToken);
+
+    if (!user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const {
+      pointId,
+      tireCount,
+      tireType,
+      collectionId,
+      generatorName,
+      generatorDocument,
+    } = await c.req.json();
+
+    if (!pointId || !tireCount || Number(tireCount) <= 0) {
+      return c.json({ error: 'pointId and tireCount are required' }, 400);
+    }
+
+    const point = await kv.get(`point:${pointId}`);
+    if (!point) {
+      return c.json({ error: 'Collection point not found' }, 404);
+    }
+
+    const nextLoad = Number(point.currentLoad || 0) + Number(tireCount);
+    if (nextLoad > Number(point.capacity || 0)) {
+      return c.json({
+        error: 'Collection point at capacity',
+        point: withPointStatus(point),
+      }, 409);
+    }
+
+    point.currentLoad = nextLoad;
+    await kv.set(`point:${pointId}`, point);
+
+    const receiptId = crypto.randomUUID();
+    const receipt = {
+      id: receiptId,
+      type: 'kiosk-delivery',
+      createdAt: new Date().toISOString(),
+      pointId,
+      pointName: point.name,
+      userId: user.id,
+      tireCount: Number(tireCount),
+      tireType: tireType || 'Mixto',
+      generatorName: generatorName || null,
+      generatorDocument: generatorDocument || null,
+      collectionId: collectionId || null,
+      digitalProof: `REC-${receiptId.slice(0, 8).toUpperCase()}`,
+    };
+
+    await kv.set(`receipt:${receiptId}`, receipt);
+
+    if (collectionId) {
+      const collection = await kv.get(`collection:${user.id}:${collectionId}`);
+      if (collection) {
+        const traceability = {
+          qrCode: collection?.traceability?.qrCode || generateQrCode(user.id, collectionId),
+          currentStage: 'acopiada',
+          events: collection?.traceability?.events || [],
+        };
+
+        traceability.events.push(
+          createTraceEvent(
+            'acopiada',
+            'kiosk',
+            'Entrega registrada en kiosco digital',
+            {
+              pointId,
+              pointName: point.name,
+              receiptId,
+              tireCount: Number(tireCount),
+            },
+          ),
+        );
+
+        collection.traceability = traceability;
+        collection.kioskReceiptId = receiptId;
+        collection.collectionPointId = pointId;
+        await kv.set(`collection:${user.id}:${collectionId}`, collection);
+      }
+    }
+
+    return c.json({
+      message: 'Kiosk delivery registered successfully',
+      receipt,
+      point: withPointStatus(point),
+    }, 201);
+  } catch (error) {
+    console.log(`Kiosk delivery error: ${error}`);
+    return c.json({ error: 'Error registering kiosk delivery' }, 500);
+  }
+});
+
 // ==================== COLLECTION POINTS ROUTES ====================
 
 // Get all collection points
 app.get("/server/points", async (c) => {
   try {
     const points = await kv.getByPrefix('point:');
-    return c.json(points);
+    return c.json(points.map(withPointStatus));
   } catch (error) {
     console.log(`Get points error: ${error}`);
     return c.json({ error: 'Error getting collection points' }, 500);
