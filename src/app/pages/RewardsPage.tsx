@@ -111,6 +111,11 @@ export default function RewardsPage() {
     window.open(couponUrl, '_blank');
   };
 
+  const handlePrintCoupon = (redemptionId: string) => {
+    const couponUrl = `${rewardsAPI.getCouponUrl(redemptionId)}?print=1`;
+    window.open(couponUrl, '_blank');
+  };
+
   const filteredRewards = selectedCategory === 'all' 
     ? rewards 
     : rewards.filter(r => r.category === selectedCategory);
@@ -470,13 +475,23 @@ export default function RewardsPage() {
                             </div>
                             
                             {isPending && !isExpired && (
-                              <Button 
-                                size="sm" 
-                                className="bg-green-600 hover:bg-green-700 w-full"
-                                onClick={() => handleViewCoupon(redemption.id)}
-                              >
-                                Ver Cupón
-                              </Button>
+                              <div className="grid grid-cols-2 gap-2">
+                                <Button 
+                                  size="sm" 
+                                  className="bg-green-600 hover:bg-green-700 w-full"
+                                  onClick={() => handleViewCoupon(redemption.id)}
+                                >
+                                  Ver Cupón
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="w-full"
+                                  onClick={() => handlePrintCoupon(redemption.id)}
+                                >
+                                  Descargar PDF
+                                </Button>
+                              </div>
                             )}
                           </div>
                         </div>
@@ -490,7 +505,7 @@ export default function RewardsPage() {
                   <h3 className="font-semibold mb-2 text-sm">💡 Cómo usar tus cupones</h3>
                   <ul className="text-xs text-gray-600 space-y-1">
                     <li>1. Haz clic en "Ver Cupón" para abrir el cupón completo</li>
-                    <li>2. Presenta el cupón (impreso o en pantalla) en el comercio afiliado</li>
+                    <li>2. Usa "Descargar PDF" para abrir el diálogo de impresión/guardado</li>
                     <li>3. El comercio verificará el código y aplicará tu beneficio</li>
                     <li>4. Los cupones tienen validez de 30 días desde la fecha de canje</li>
                   </ul>

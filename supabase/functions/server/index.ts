@@ -64,6 +64,17 @@ const findCollectionKeyById = async (collectionId: string) => {
   return null;
 };
 
+const findRedemptionById = async (redemptionId: string) => {
+  const redemptionKeys = await kv.getKeysByPrefix('redemption:');
+  for (const key of redemptionKeys) {
+    const value = await kv.get(key);
+    if (value?.id === redemptionId) {
+      return { key, value };
+    }
+  }
+  return null;
+};
+
 const PRICING_DEFAULTS = {
   generatorTariffsByCondition: {
     excelente: 300,
@@ -3263,22 +3274,46 @@ const generateCouponHTML = (couponCode: string, redemption: any, reward: any, us
     month: 'long',
     day: 'numeric'
   });
+  const safeCode = String(couponCode || '');
+  const safeRewardTitle = String(reward?.title || 'Recompensa');
+  const safeRewardDescription = String(reward?.description || 'Disfruta de tu recompensa en nuestros comercios afiliados.');
+  const safeUserName = String(user?.name || user?.email || 'Usuario');
+  const safePoints = Number(redemption?.pointsCost || 0);
+  const safeRedemptionId = String(redemption?.id || '');
+  const safeSponsor = String(reward?.sponsor || '');
+  const issueDate = new Date(redemption.createdAt).toLocaleDateString('es-HN');
+  const qrPayload = encodeURIComponent(JSON.stringify({
+    couponCode: safeCode,
+    redemptionId: safeRedemptionId,
+    rewardId: String(redemption?.rewardId || ''),
+    userId: String(redemption?.userId || ''),
+    expiresAt: String(redemption?.expiresAt || ''),
+  }));
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${qrPayload}`;
   
   return `<!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <title>Cupón EcolLant - ${couponCode}</title>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cupon EcolLant - ${safeCode}</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
     .coupon { max-width: 600px; margin: 0 auto; background: white; border: 3px solid #10b981; border-radius: 12px; overflow: hidden; }
+    .actions { max-width: 600px; margin: 0 auto 12px auto; display: flex; gap: 8px; }
+    .action-btn { border: 0; background: #065f46; color: #fff; border-radius: 8px; padding: 10px 14px; font-size: 13px; cursor: pointer; }
+    .action-btn.secondary { background: #334155; }
     .header { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 30px; text-align: center; }
     .header h1 { font-size: 28px; margin-bottom: 10px; }
     .header p { font-size: 14px; opacity: 0.9; }
     .content { padding: 30px; }
     .code-box { background: #f0fdf4; border: 2px dashed #10b981; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0; }
     .code { font-size: 24px; font-weight: bold; color: #059669; letter-spacing: 2px; }
+    .qr-wrap { margin: 20px 0; text-align: center; }
+    .qr-wrap img { width: 170px; height: 170px; border: 1px solid #d1d5db; border-radius: 8px; padding: 6px; background: #fff; }
+    .qr-caption { margin-top: 6px; font-size: 12px; color: #6b7280; }
     .reward-title { font-size: 22px; color: #1f2937; margin-bottom: 15px; font-weight: bold; }
     .reward-desc { color: #6b7280; margin-bottom: 20px; line-height: 1.6; }
     .info-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
@@ -3290,58 +3325,68 @@ const generateCouponHTML = (couponCode: string, redemption: any, reward: any, us
     .instructions p { color: #78350f; font-size: 13px; line-height: 1.5; }
     @media print {
       body { background: white; padding: 0; }
+      .actions { display: none !important; }
       .coupon { border: 2px solid #10b981; }
     }
   </style>
 </head>
 <body>
+  <div class="actions">
+    <button class="action-btn" onclick="window.print()">Descargar / Imprimir PDF</button>
+    <button class="action-btn secondary" onclick="window.close()">Cerrar</button>
+  </div>
   <div class="coupon">
     <div class="header">
-      <h1>🎁 Cupón de Recompensa</h1>
+      <h1>Cupon de Recompensa</h1>
       <p>EcolLantApp - Reciclaje de Llantas</p>
     </div>
     <div class="content">
       <div class="code-box">
-        <div style="font-size: 12px; color: #059669; margin-bottom: 8px;">CÓDIGO DEL CUPÓN</div>
-        <div class="code">${couponCode}</div>
+        <div style="font-size: 12px; color: #059669; margin-bottom: 8px;">CODIGO DEL CUPON</div>
+        <div class="code">${safeCode}</div>
+      </div>
+
+      <div class="qr-wrap">
+        <img src="${qrImageUrl}" alt="QR del cupon" />
+        <p class="qr-caption">Escanea para validar el cupon</p>
       </div>
       
-      <h2 class="reward-title">${reward.title}</h2>
-      <p class="reward-desc">${reward.description || 'Disfruta de tu recompensa en nuestros comercios afiliados.'}</p>
+      <h2 class="reward-title">${safeRewardTitle}</h2>
+      <p class="reward-desc">${safeRewardDescription}</p>
       
       <div class="info-row">
         <span class="info-label">Beneficiario:</span>
-        <span class="info-value">${user.name || user.email}</span>
+        <span class="info-value">${safeUserName}</span>
       </div>
       <div class="info-row">
         <span class="info-label">Puntos Canjeados:</span>
-        <span class="info-value">${redemption.pointsCost} puntos</span>
+        <span class="info-value">${safePoints} puntos</span>
       </div>
       <div class="info-row">
-        <span class="info-label">Fecha de Emisión:</span>
-        <span class="info-value">${new Date(redemption.createdAt).toLocaleDateString('es-HN')}</span>
+        <span class="info-label">Fecha de Emision:</span>
+        <span class="info-value">${issueDate}</span>
       </div>
       <div class="info-row">
-        <span class="info-label">Válido hasta:</span>
+        <span class="info-label">Valido hasta:</span>
         <span class="info-value">${expiryDate}</span>
       </div>
-      ${reward.sponsor ? `<div class="info-row">
+      ${safeSponsor ? `<div class="info-row">
         <span class="info-label">Comercio Afiliado:</span>
-        <span class="info-value">${reward.sponsor}</span>
+        <span class="info-value">${safeSponsor}</span>
       </div>` : ''}
       
       <div class="instructions">
-        <h3>📋 Instrucciones de Canje</h3>
-        <p>1. Presenta este cupón (impreso o digital) en el comercio afiliado<br>
-        2. El comercio verificará el código del cupón<br>
-        3. Una vez validado, podrás disfrutar de tu recompensa<br>
+        <h3>Instrucciones de Canje</h3>
+        <p>1. Presenta este cupon (impreso o digital) en el comercio afiliado<br>
+        2. El comercio verificara el codigo del cupon y/o QR<br>
+        3. Una vez validado, podras disfrutar de tu recompensa<br>
         4. Este cupón es de un solo uso y no es transferible</p>
       </div>
     </div>
     <div class="footer">
-      <p><strong>EcolLantApp</strong> - Sistema de Gestión de Reciclaje de Llantas</p>
-      <p>Cupón ID: ${redemption.id}</p>
-      <p>Para más información: soporte@ecollant.com | +504 2550-0001</p>
+      <p><strong>EcolLantApp</strong> - Sistema de Gestion de Reciclaje de Llantas</p>
+      <p>Cupon ID: ${safeRedemptionId}</p>
+      <p>Para mas informacion: soporte@ecollant.com | +504 2550-0001</p>
     </div>
   </div>
 </body>
@@ -3602,16 +3647,53 @@ app.post("/server/rewards/:rewardId/redeem", async (c) => {
 app.get("/server/coupons/:redemptionId", async (c) => {
   try {
     const redemptionId = c.req.param('redemptionId');
-    const html = await kv.get(`coupon-html:${redemptionId}`);
-    
-    if (!html) {
-      return c.html('<h1>Cupón no encontrado</h1><p>Este cupón no existe o ha expirado.</p>', 404);
+    const printMode = String(c.req.query('print') || '').toLowerCase() === '1';
+
+    const redemptionData = await findRedemptionById(redemptionId);
+    if (!redemptionData?.value) {
+      return new Response('<h1>Cupon no encontrado</h1><p>Este cupon no existe o ha expirado.</p>', {
+        status: 404,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
     }
-    
-    return c.html(html);
+
+    const redemption = redemptionData.value;
+    const reward = await kv.get(`reward:${redemption.rewardId}`);
+    const userProfile = await kv.get(`user:${redemption.userId}`);
+
+    if (!reward) {
+      return new Response('<h1>Recompensa no encontrada</h1><p>No se pudo resolver la recompensa del cupon.</p>', {
+        status: 404,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      });
+    }
+
+    const couponCode = redemption.couponCode || generateCouponCode();
+    if (!redemption.couponCode) {
+      redemption.couponCode = couponCode;
+      await kv.set(redemptionData.key, redemption);
+    }
+
+    const html = generateCouponHTML(couponCode, redemption, reward, userProfile || {});
+    await kv.set(`coupon-html:${redemptionId}`, html);
+
+    const payload = printMode
+      ? html.replace('</body>', '<script>window.onload=function(){window.print();};</script></body>')
+      : html;
+
+    return new Response(payload, {
+      status: 200,
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+      },
+    });
   } catch (error) {
     console.log(`Get coupon error: ${error}`);
-    return c.html('<h1>Error</h1><p>Error al cargar el cupón.</p>', 500);
+    return new Response('<h1>Error</h1><p>Error al cargar el cupon.</p>', {
+      status: 500,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    });
   }
 });
 
@@ -3652,19 +3734,9 @@ app.post("/server/coupons/:redemptionId/use", async (c) => {
     const redemptionId = c.req.param('redemptionId');
     const { notes } = await c.req.json();
     
-    // Find the redemption
-    const redemptionKeys = await kv.getKeysByPrefix('redemption:');
-    let redemptionKey = null;
-    let redemption = null;
-    
-    for (const key of redemptionKeys) {
-      const value = await kv.get(key);
-      if (value?.id === redemptionId) {
-        redemptionKey = key;
-        redemption = value;
-        break;
-      }
-    }
+    const redemptionData = await findRedemptionById(redemptionId);
+    const redemptionKey = redemptionData?.key || null;
+    const redemption = redemptionData?.value || null;
     
     if (!redemption) {
       return c.json({ error: 'Redemption not found' }, 404);
