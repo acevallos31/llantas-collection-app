@@ -31,18 +31,27 @@ export default defineConfig({
     },
   },
   server: {
-    https: {
-      key: fs.readFileSync('localhost-key.pem'),
-      cert: fs.readFileSync('localhost-cert.pem'),
-    },
+    // Solo usar HTTPS en desarrollo local si los certificados existen
+    ...(fs.existsSync('localhost-key.pem') && fs.existsSync('localhost-cert.pem')
+      ? {
+          https: {
+            key: fs.readFileSync('localhost-key.pem'),
+            cert: fs.readFileSync('localhost-cert.pem'),
+          },
+        }
+      : {}),
     host: 'localhost',
     port: 5173,
     strictPort: true,
-    hmr: {
-      protocol: 'wss',
-      host: 'localhost',
-      clientPort: 5173,
-    },
+    ...(fs.existsSync('localhost-key.pem') && fs.existsSync('localhost-cert.pem')
+      ? {
+          hmr: {
+            protocol: 'wss',
+            host: 'localhost',
+            clientPort: 5173,
+          },
+        }
+      : {}),
   },
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
