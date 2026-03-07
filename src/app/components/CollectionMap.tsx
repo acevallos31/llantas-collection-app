@@ -25,6 +25,7 @@ export default function CollectionMap({
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
+  const isUnmountingRef = useRef(false);
 
   const coordinates = useMemo<LatLngTuple[]>(() => {
     const pointCoordinates: LatLngTuple[] = points
@@ -44,11 +45,16 @@ export default function CollectionMap({
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
+    isUnmountingRef.current = false;
 
     const map = L.map(mapContainerRef.current, {
       center: defaultCenter,
       zoom: 10,
       zoomControl: true,
+      // Prevent zoom-transition race conditions when the map unmounts.
+      zoomAnimation: false,
+      fadeAnimation: false,
+      markerZoomAnimation: false,
     });
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -59,6 +65,10 @@ export default function CollectionMap({
     layerGroupRef.current = L.layerGroup().addTo(map);
 
     return () => {
+      isUnmountingRef.current = true;
+      map.off();
+      // stop() prevents pending animations from firing transition callbacks after unmount.
+      map.stop();
       map.remove();
       mapRef.current = null;
       layerGroupRef.current = null;
@@ -68,7 +78,10 @@ export default function CollectionMap({
   useEffect(() => {
     const map = mapRef.current;
     const layerGroup = layerGroupRef.current;
-    if (!map || !layerGroup) return;
+    if (!map || !layerGroup || isUnmountingRef.current) return;
+
+    const mapPane = (map as unknown as { _mapPane?: HTMLElement })._mapPane;
+    if (!mapPane?.isConnected) return;
 
     layerGroup.clearLayers();
 
@@ -128,10 +141,14 @@ export default function CollectionMap({
         .addTo(layerGroup);
     }
 
-    if (coordinates.length > 1) {
-      map.fitBounds(coordinates, { padding: [48, 48], maxZoom: 12 });
-    } else if (coordinates.length === 1) {
-      map.setView(coordinates[0], 11);
+    try {
+      if (coordinates.length > 1) {
+        map.fitBounds(coordinates, { padding: [48, 48], maxZoom: 12 });
+      } else if (coordinates.length === 1) {
+        map.setView(coordinates[0], 11);
+      }
+    } catch {
+      // Ignore transient map lifecycle errors during route changes.
     }
   }, [points, collections, userLocation, coordinates]);
 

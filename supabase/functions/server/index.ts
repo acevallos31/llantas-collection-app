@@ -308,6 +308,26 @@ const resolveAuthenticatedUserFromRequest = async (c: any) => {
 
 const getSessionMetaKey = (sessionId: string) => `analytics:session-meta:${sessionId}`;
 const getSessionActivityKey = (sessionId: string) => `analytics:session-activity:${sessionId}`;
+const getBlockedSessionKey = (sessionId: string) => `analytics:blocked-session:${sessionId}`;
+const getScreenShareRequestKey = (sessionId: string) => `analytics:screen-share:request:${sessionId}`;
+const getScreenShareOfferKey = (sessionId: string) => `analytics:screen-share:offer:${sessionId}`;
+const getScreenShareAnswerKey = (sessionId: string) => `analytics:screen-share:answer:${sessionId}`;
+const getScreenShareIceCollectorKey = (sessionId: string) => `analytics:screen-share:ice:collector:${sessionId}`;
+const getScreenShareIceAdminKey = (sessionId: string) => `analytics:screen-share:ice:admin:${sessionId}`;
+
+const canAccessScreenShareSession = async (user: any, sessionId: string) => {
+  if (!user?.id || !sessionId) return false;
+  if (user?.type === 'admin') return true;
+
+  const meta = await kv.get(getSessionMetaKey(sessionId));
+  if (!meta) return false;
+
+  if (meta.userId && String(meta.userId) === String(user.id)) {
+    return true;
+  }
+
+  return false;
+};
 
 const upsertSessionMeta = async (
   sessionId: string,
@@ -343,6 +363,21 @@ const appendSessionActivity = async (
     ...safeCurrent,
   ].slice(0, 60);
   await kv.set(key, next);
+};
+
+const blockSession = async (sessionId: string, reason = 'closed_by_admin') => {
+  if (!sessionId) return;
+  await kv.set(getBlockedSessionKey(sessionId), {
+    sessionId,
+    reason,
+    blockedAt: new Date().toISOString(),
+  });
+};
+
+const isSessionBlocked = async (sessionId: string) => {
+  if (!sessionId) return false;
+  const blocked = await kv.get(getBlockedSessionKey(sessionId));
+  return Boolean(blocked);
 };
 
 const shouldTrackAnalyticsForUserType = async (userType?: string) => {
@@ -384,6 +419,9 @@ app.post('/server/analytics/visit', async (c) => {
     }
 
     const sessionId = String(payload?.sessionId || '').trim();
+    if (sessionId && await isSessionBlocked(sessionId)) {
+      return c.json({ error: 'Session blocked by admin', code: 'SESSION_BLOCKED' }, 409);
+    }
     const resolvedUser = await resolveAuthenticatedUserFromRequest(c);
     const safeUserType = payload?.userType || resolvedUser?.type || 'unknown';
     const supabase = getSupabaseClient(true);
@@ -452,28 +490,117 @@ app.post('/server/analytics/session', async (c) => {
 app.post('/server/analytics/load', async (c) => {
   try {
     const payload = await c.req.json();
+    
     if (!(await shouldTrackAnalyticsForUserType(payload?.userType))) {
       return c.json({ message: 'Load tracking skipped for admin' }, 200);
     }
-    const loadTimeMs = Math.max(0, Number(payload?.loadTimeMs || 0));
-
-    if (!Number.isFinite(loadTimeMs)) {
+    const parsedLoadTime = Number(payload?.loadTimeMs || 0);
+    if (!Number.isFinite(parsedLoadTime)) {
       return c.json({ error: 'loadTimeMs must be a number' }, 400);
     }
+    // DB expects bigint-compatible integer values.
+    const loadTimeMs = Math.max(0, Math.round(parsedLoadTime));
 
     const supabase = getSupabaseClient(true);
-    const { error } = await supabase.rpc('analytics_track_load', {
+    
+    // First ensure analytics_overview row exists
+    const { error: initError } = await supabase
+      .from('analytics_overview')
+      .upsert({ id: 1 }, { onConflict: 'id', ignoreDuplicates: true });
+    
+    if (initError) {
+      return c.json({ 
+        error: 'Failed to initialize analytics_overview',
+        details: initError.message,
+        code: initError.code,
+        hint: initError.hint
+      }, 500);
+    }
+    
+    // Use ACID function for safe concurrent updates
+    const { data, error } = await supabase.rpc('analytics_track_load', {
       p_load_time_ms: loadTimeMs,
       p_user_type: payload?.userType || 'unknown',
     });
 
     if (error) {
-      throw new Error(error.message);
+      // Some environments may have overloaded analytics_track_load signatures.
+      // PostgREST returns PGRST203 when it cannot disambiguate by JSON argument types.
+      if (error.code === 'PGRST203') {
+        const safeUserType = payload?.userType || 'unknown';
+
+        const { error: eventError } = await supabase
+          .from('analytics_events')
+          .insert({
+            type: 'load',
+            user_type: safeUserType,
+            load_time_ms: loadTimeMs,
+          });
+
+        if (eventError) {
+          return c.json({
+            error: 'Fallback event insert failed',
+            details: eventError.message,
+            code: eventError.code,
+            hint: eventError.hint,
+          }, 500);
+        }
+
+        const { data: overview, error: overviewReadError } = await supabase
+          .from('analytics_overview')
+          .select('total_app_load_time_ms, app_load_sample_count')
+          .eq('id', 1)
+          .single();
+
+        if (overviewReadError) {
+          return c.json({
+            error: 'Fallback overview read failed',
+            details: overviewReadError.message,
+            code: overviewReadError.code,
+            hint: overviewReadError.hint,
+          }, 500);
+        }
+
+        const { error: overviewUpdateError } = await supabase
+          .from('analytics_overview')
+          .update({
+            total_app_load_time_ms: Number(overview?.total_app_load_time_ms || 0) + loadTimeMs,
+            app_load_sample_count: Number(overview?.app_load_sample_count || 0) + 1,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', 1);
+
+        if (overviewUpdateError) {
+          return c.json({
+            error: 'Fallback overview update failed',
+            details: overviewUpdateError.message,
+            code: overviewUpdateError.code,
+            hint: overviewUpdateError.hint,
+          }, 500);
+        }
+
+        return c.json({
+          message: 'Load time tracked (fallback due to overloaded RPC)',
+          code: 'ANALYTICS_LOAD_FALLBACK',
+        }, 201);
+      }
+
+      return c.json({ 
+        error: 'Database function error', 
+        details: error.message,
+        code: error.code,
+        hint: error.hint,
+        fullError: JSON.stringify(error)
+      }, 500);
     }
-    return c.json({ message: 'Load time tracked' }, 201);
+
+    return c.json({ message: 'Load time tracked', data }, 201);
   } catch (error) {
-    console.log(`Analytics load error: ${error}`);
-    return c.json({ error: 'Error tracking load time' }, 500);
+    return c.json({ 
+      error: 'Error tracking load time',
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    }, 500);
   }
 });
 
@@ -486,6 +613,9 @@ app.post('/server/analytics/session/start', async (c) => {
     const sessionId = String(payload?.sessionId || '').trim();
     if (!sessionId) {
       return c.json({ error: 'sessionId is required' }, 400);
+    }
+    if (await isSessionBlocked(sessionId)) {
+      return c.json({ error: 'Session blocked by admin', code: 'SESSION_BLOCKED' }, 409);
     }
 
     const resolvedUser = await resolveAuthenticatedUserFromRequest(c);
@@ -538,6 +668,9 @@ app.post('/server/analytics/session/ping', async (c) => {
     const sessionId = String(payload?.sessionId || '').trim();
     if (!sessionId) {
       return c.json({ error: 'sessionId is required' }, 400);
+    }
+    if (await isSessionBlocked(sessionId)) {
+      return c.json({ error: 'Session blocked by admin', code: 'SESSION_BLOCKED' }, 409);
     }
 
     const resolvedUser = await resolveAuthenticatedUserFromRequest(c);
@@ -622,6 +755,376 @@ app.post('/server/analytics/session/end', async (c) => {
   } catch (error) {
     console.log(`Analytics session end error: ${error}`);
     return c.json({ error: 'Error ending session' }, 500);
+  }
+});
+
+app.post('/server/analytics/session/screen-share-request', async (c) => {
+  const adminCheck = await requireAdmin(c);
+  if (adminCheck.error) return adminCheck.error;
+
+  try {
+    const payload = await c.req.json();
+    const sessionId = String(payload?.sessionId || '').trim();
+    if (!sessionId) {
+      return c.json({ error: 'sessionId is required' }, 400);
+    }
+
+    const request = {
+      sessionId,
+      requesterId: adminCheck.user?.id || payload?.requesterId || null,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await kv.set(getScreenShareRequestKey(sessionId), request);
+    await kv.del(getScreenShareOfferKey(sessionId));
+    await kv.del(getScreenShareAnswerKey(sessionId));
+    await kv.del(getScreenShareIceCollectorKey(sessionId));
+    await kv.del(getScreenShareIceAdminKey(sessionId));
+
+    return c.json({ message: 'Screen-share request created', request }, 201);
+  } catch (error) {
+    console.log(`Screen-share request error: ${error}`);
+    return c.json({ error: 'Error creating screen-share request' }, 500);
+  }
+});
+
+app.post('/server/analytics/session/screen-share-request/self', async (c) => {
+  try {
+    const payload = await c.req.json();
+    const sessionId = String(payload?.sessionId || '').trim();
+    if (!sessionId) {
+      return c.json({ error: 'sessionId is required' }, 400);
+    }
+
+    const resolvedUser = await resolveAuthenticatedUserFromRequest(c);
+    if (!resolvedUser?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const allowed = await canAccessScreenShareSession(resolvedUser, sessionId);
+    if (!allowed) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    const current = (await kv.get(getScreenShareRequestKey(sessionId))) || {};
+    const request = {
+      ...current,
+      sessionId,
+      requesterId: resolvedUser.id,
+      requesterType: resolvedUser.type,
+      status: 'user-requested',
+      createdAt: current?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await kv.set(getScreenShareRequestKey(sessionId), request);
+    return c.json({ message: 'Remote assistance requested', request }, 201);
+  } catch (error) {
+    console.log(`Screen-share self-request error: ${error}`);
+    return c.json({ error: 'Error requesting remote assistance' }, 500);
+  }
+});
+
+app.get('/server/analytics/session/screen-share-request/:sessionId', async (c) => {
+  try {
+    const sessionId = String(c.req.param('sessionId') || '').trim();
+    if (!sessionId) {
+      return c.json({ error: 'sessionId is required' }, 400);
+    }
+
+    const resolvedUser = await resolveAuthenticatedUserFromRequest(c);
+    if (!resolvedUser?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const allowed = await canAccessScreenShareSession(resolvedUser, sessionId);
+    if (!allowed) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    const request = await kv.get(getScreenShareRequestKey(sessionId));
+    return c.json({ request: request || null });
+  } catch (error) {
+    console.log(`Screen-share request read error: ${error}`);
+    return c.json({ error: 'Error reading screen-share request' }, 500);
+  }
+});
+
+app.post('/server/analytics/session/screen-share-request/:sessionId/status', async (c) => {
+  try {
+    const sessionId = String(c.req.param('sessionId') || '').trim();
+    if (!sessionId) {
+      return c.json({ error: 'sessionId is required' }, 400);
+    }
+
+    const resolvedUser = await resolveAuthenticatedUserFromRequest(c);
+    if (!resolvedUser?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const allowed = await canAccessScreenShareSession(resolvedUser, sessionId);
+    if (!allowed) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    const payload = await c.req.json();
+    const status = String(payload?.status || '').trim();
+    if (!['accepted', 'rejected', 'pending', 'stopped', 'user-requested'].includes(status)) {
+      return c.json({ error: 'Invalid status' }, 400);
+    }
+
+    const current = (await kv.get(getScreenShareRequestKey(sessionId))) || {
+      sessionId,
+      requesterId: null,
+      createdAt: new Date().toISOString(),
+    };
+
+    const nextRequest = {
+      ...current,
+      status,
+      updatedAt: new Date().toISOString(),
+      responderUserId: resolvedUser.id,
+    };
+
+    await kv.set(getScreenShareRequestKey(sessionId), nextRequest);
+
+    if (status === 'stopped') {
+      await kv.del(getScreenShareOfferKey(sessionId));
+      await kv.del(getScreenShareAnswerKey(sessionId));
+      await kv.del(getScreenShareIceCollectorKey(sessionId));
+      await kv.del(getScreenShareIceAdminKey(sessionId));
+    }
+
+    return c.json({ message: 'Request status updated', request: nextRequest });
+  } catch (error) {
+    console.log(`Screen-share request status error: ${error}`);
+    return c.json({ error: 'Error updating screen-share request status' }, 500);
+  }
+});
+
+app.post('/server/analytics/session/screen-share-offer', async (c) => {
+  try {
+    const payload = await c.req.json();
+    const sessionId = String(payload?.sessionId || '').trim();
+    const sdp = String(payload?.sdp || '').trim();
+
+    if (!sessionId || !sdp) {
+      return c.json({ error: 'sessionId and sdp are required' }, 400);
+    }
+
+    const resolvedUser = await resolveAuthenticatedUserFromRequest(c);
+    if (!resolvedUser?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const allowed = await canAccessScreenShareSession(resolvedUser, sessionId);
+    if (!allowed) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    const offer = {
+      sessionId,
+      sdp,
+      createdAt: new Date().toISOString(),
+      userId: resolvedUser.id,
+    };
+    await kv.set(getScreenShareOfferKey(sessionId), offer);
+    return c.json({ message: 'Offer stored' }, 201);
+  } catch (error) {
+    console.log(`Screen-share offer error: ${error}`);
+    return c.json({ error: 'Error storing offer' }, 500);
+  }
+});
+
+app.get('/server/analytics/session/screen-share-offer/:sessionId', async (c) => {
+  const adminCheck = await requireAdmin(c);
+  if (adminCheck.error) return adminCheck.error;
+
+  try {
+    const sessionId = String(c.req.param('sessionId') || '').trim();
+    if (!sessionId) {
+      return c.json({ error: 'sessionId is required' }, 400);
+    }
+
+    const offer = await kv.get(getScreenShareOfferKey(sessionId));
+    return c.json({ offer: offer || null });
+  } catch (error) {
+    console.log(`Screen-share offer read error: ${error}`);
+    return c.json({ error: 'Error reading offer' }, 500);
+  }
+});
+
+app.post('/server/analytics/session/screen-share-answer', async (c) => {
+  const adminCheck = await requireAdmin(c);
+  if (adminCheck.error) return adminCheck.error;
+
+  try {
+    const payload = await c.req.json();
+    const sessionId = String(payload?.sessionId || '').trim();
+    const sdp = String(payload?.sdp || '').trim();
+
+    if (!sessionId || !sdp) {
+      return c.json({ error: 'sessionId and sdp are required' }, 400);
+    }
+
+    const answer = {
+      sessionId,
+      sdp,
+      createdAt: new Date().toISOString(),
+      userId: adminCheck.user?.id || null,
+    };
+    await kv.set(getScreenShareAnswerKey(sessionId), answer);
+    return c.json({ message: 'Answer stored' }, 201);
+  } catch (error) {
+    console.log(`Screen-share answer error: ${error}`);
+    return c.json({ error: 'Error storing answer' }, 500);
+  }
+});
+
+app.get('/server/analytics/session/screen-share-answer/:sessionId', async (c) => {
+  try {
+    const sessionId = String(c.req.param('sessionId') || '').trim();
+    if (!sessionId) {
+      return c.json({ error: 'sessionId is required' }, 400);
+    }
+
+    const resolvedUser = await resolveAuthenticatedUserFromRequest(c);
+    if (!resolvedUser?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const allowed = await canAccessScreenShareSession(resolvedUser, sessionId);
+    if (!allowed) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    const answer = await kv.get(getScreenShareAnswerKey(sessionId));
+    return c.json({ answer: answer || null });
+  } catch (error) {
+    console.log(`Screen-share answer read error: ${error}`);
+    return c.json({ error: 'Error reading answer' }, 500);
+  }
+});
+
+app.post('/server/analytics/session/screen-share-ice', async (c) => {
+  try {
+    const payload = await c.req.json();
+    const sessionId = String(payload?.sessionId || '').trim();
+    const candidate = payload?.candidate || null;
+
+    if (!sessionId || !candidate) {
+      return c.json({ error: 'sessionId and candidate are required' }, 400);
+    }
+
+    const resolvedUser = await resolveAuthenticatedUserFromRequest(c);
+    if (!resolvedUser?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const allowed = await canAccessScreenShareSession(resolvedUser, sessionId);
+    if (!allowed) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    const key = getScreenShareIceCollectorKey(sessionId);
+    const current = (await kv.get(key)) || [];
+    const safeCurrent = Array.isArray(current) ? current : [];
+    const next = [
+      ...safeCurrent,
+      {
+        candidate,
+        createdAt: new Date().toISOString(),
+      },
+    ].slice(-50);
+    await kv.set(key, next);
+
+    return c.json({ message: 'ICE candidate stored' }, 201);
+  } catch (error) {
+    console.log(`Screen-share collector ICE error: ${error}`);
+    return c.json({ error: 'Error storing ICE candidate' }, 500);
+  }
+});
+
+app.post('/server/analytics/session/screen-share-ice/admin', async (c) => {
+  const adminCheck = await requireAdmin(c);
+  if (adminCheck.error) return adminCheck.error;
+
+  try {
+    const payload = await c.req.json();
+    const sessionId = String(payload?.sessionId || '').trim();
+    const candidate = payload?.candidate || null;
+
+    if (!sessionId || !candidate) {
+      return c.json({ error: 'sessionId and candidate are required' }, 400);
+    }
+
+    const key = getScreenShareIceAdminKey(sessionId);
+    const current = (await kv.get(key)) || [];
+    const safeCurrent = Array.isArray(current) ? current : [];
+    const next = [
+      ...safeCurrent,
+      {
+        candidate,
+        createdAt: new Date().toISOString(),
+      },
+    ].slice(-50);
+    await kv.set(key, next);
+
+    return c.json({ message: 'Admin ICE candidate stored' }, 201);
+  } catch (error) {
+    console.log(`Screen-share admin ICE error: ${error}`);
+    return c.json({ error: 'Error storing admin ICE candidate' }, 500);
+  }
+});
+
+app.get('/server/analytics/session/screen-share-ice/:sessionId/admin', async (c) => {
+  try {
+    const sessionId = String(c.req.param('sessionId') || '').trim();
+    if (!sessionId) {
+      return c.json({ error: 'sessionId is required' }, 400);
+    }
+
+    const resolvedUser = await resolveAuthenticatedUserFromRequest(c);
+    if (!resolvedUser?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const allowed = await canAccessScreenShareSession(resolvedUser, sessionId);
+    if (!allowed) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    const rawCandidates = (await kv.get(getScreenShareIceAdminKey(sessionId))) || [];
+    const candidates = Array.isArray(rawCandidates)
+      ? rawCandidates.map((item: any) => item?.candidate).filter(Boolean)
+      : [];
+    return c.json({ candidates });
+  } catch (error) {
+    console.log(`Screen-share admin ICE read error: ${error}`);
+    return c.json({ error: 'Error reading admin ICE candidates' }, 500);
+  }
+});
+
+app.get('/server/analytics/session/screen-share-ice/:sessionId/collector', async (c) => {
+  const adminCheck = await requireAdmin(c);
+  if (adminCheck.error) return adminCheck.error;
+
+  try {
+    const sessionId = String(c.req.param('sessionId') || '').trim();
+    if (!sessionId) {
+      return c.json({ error: 'sessionId is required' }, 400);
+    }
+
+    const rawCandidates = (await kv.get(getScreenShareIceCollectorKey(sessionId))) || [];
+    const candidates = Array.isArray(rawCandidates)
+      ? rawCandidates.map((item: any) => item?.candidate).filter(Boolean)
+      : [];
+    return c.json({ candidates });
+  } catch (error) {
+    console.log(`Screen-share collector ICE read error: ${error}`);
+    return c.json({ error: 'Error reading collector ICE candidates' }, 500);
   }
 });
 
@@ -1123,7 +1626,7 @@ app.put("/server/collections/:collectionId", async (c) => {
       }
     }
 
-    if (isCollector && updates.status && !['in-progress', 'completed', 'cancelled'].includes(updates.status)) {
+    if (isCollector && updates.status && !['pending', 'in-progress', 'completed', 'cancelled'].includes(updates.status)) {
       return c.json({ error: 'Invalid status for collector update' }, 400);
     }
     
@@ -2300,9 +2803,23 @@ app.post('/server/admin/analytics/reset-active-sessions', async (c) => {
       throw new Error(countError.message);
     }
 
+    const { data: activeRowsToReset, error: rowsError } = await supabase
+      .from('analytics_active_sessions')
+      .select('session_id');
+    if (rowsError) {
+      throw new Error(rowsError.message);
+    }
+
     const { data, error } = await supabase.rpc('analytics_close_all_sessions_tx');
     if (error) {
       throw new Error(error.message);
+    }
+
+    for (const row of (activeRowsToReset || [])) {
+      const sessionId = String((row as any)?.session_id || '');
+      if (sessionId) {
+        await blockSession(sessionId, 'reset_active_sessions');
+      }
     }
 
     const metaKeys = await kv.getKeysByPrefix('analytics:session-meta:');
@@ -2452,6 +2969,7 @@ app.delete('/server/admin/analytics/sessions/:sessionId', async (c) => {
 
     await kv.del(getSessionMetaKey(sessionId));
     await kv.del(getSessionActivityKey(sessionId));
+    await blockSession(sessionId, 'closed_by_admin');
 
     return c.json({
       message: 'Session closed',
@@ -2499,6 +3017,9 @@ app.post('/server/admin/analytics/sessions/close-all', async (c) => {
       await kv.mdel(metaKeys);
       const activityKeys = toClose.map((sessionId: string) => getSessionActivityKey(sessionId));
       await kv.mdel(activityKeys);
+      for (const sessionId of toClose) {
+        await blockSession(sessionId, 'closed_by_admin_bulk');
+      }
     }
 
     const snapshot = await syncConcurrentSessions();

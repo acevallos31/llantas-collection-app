@@ -31,6 +31,7 @@ import {
   LoaderCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { jsPDF } from 'jspdf';
 
 type TraceEvent = {
   stage: string;
@@ -152,21 +153,37 @@ export default function HistoryPage() {
     try {
       const trace = await collectionsAPI.getTrace(collection.id);
       const certificateId = trace?.certificate?.certificateId || `CERT-${collection.id.slice(0, 8).toUpperCase()}`;
-      const lines = [
-        '=== COMPROBANTE DIGITAL DE ENTREGA ===',
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      const left = 15;
+      let y = 20;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text('Comprobante Digital de Entrega', left, y);
+
+      y += 10;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      const details = [
         `Comprobante: ${certificateId}`,
         `Usuario: ${user?.name || 'N/A'} (${user?.email || 'N/A'})`,
         `Fecha programada: ${collection.scheduledDate || 'N/A'}`,
         `Fecha completada: ${collection.completedDate || 'N/A'}`,
         `Tipo de llanta: ${collection.tireType}`,
         `Cantidad: ${collection.tireCount}`,
-        `Dirección: ${collection.address}`,
+        `Direccion: ${collection.address}`,
         `Puntos generados: ${collection.points}`,
         `QR trazabilidad: ${trace?.qrCode || 'N/A'}`,
         `Destino final: ${trace?.certificate?.destinationType || 'N/A'}`,
       ];
 
-      downloadFile(`comprobante-${collection.id}.txt`, lines.join('\n'));
+      details.forEach((line) => {
+        const wrapped = doc.splitTextToSize(line, 180);
+        doc.text(wrapped, left, y);
+        y += wrapped.length * 6;
+      });
+
+      doc.save(`comprobante-${collection.id}.pdf`);
       toast.success('Comprobante descargado');
     } catch (error: any) {
       toast.error(error.message || 'No fue posible descargar el comprobante');
@@ -399,11 +416,11 @@ export default function HistoryPage() {
                     )}
 
                     {collection.status === 'completed' && (
-                      <div className="mt-4 pt-4 border-t flex gap-2">
+                      <div className="mt-4 pt-4 border-t flex flex-col sm:flex-row gap-2">
                         <Button
                           variant="secondary"
                           size="sm"
-                          className="w-full"
+                          className="flex-1"
                           onClick={() => navigate(`/history/${collection.id}`)}
                         >
                           <Route className="w-4 h-4 mr-2" />
@@ -412,7 +429,7 @@ export default function HistoryPage() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="w-full"
+                          className="flex-1"
                           onClick={() => handleDownloadReceipt(collection)}
                         >
                           <Download className="w-4 h-4 mr-2" />

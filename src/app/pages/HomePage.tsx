@@ -1,13 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { MapPin, Package, TrendingUp, Plus, Filter, Loader2 } from 'lucide-react';
-import { Button } from '../components/ui/button';
-import { Card } from '../components/ui/card';
-import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button.js';
+import { Card } from '../components/ui/card.js';
+import { Badge } from '../components/ui/badge.js';
 import { useNavigate } from 'react-router';
-import { useAuth } from '../contexts/AuthContext';
-import { pointsAPI, collectionsAPI, statsAPI } from '../services/api';
-import type { CollectionPoint, Collection } from '../mockData';
-import CollectionMap from '../components/CollectionMap';
+import { useAuth } from '../contexts/AuthContext.js';
+import { pointsAPI, collectionsAPI, statsAPI, API_BASE_URL, getAuthHeaders, ANALYTICS_SESSION_ID_KEY } from '../services/api.js';
+import type { CollectionPoint, Collection } from '../mockData.js';
+import CollectionMap from '../components/CollectionMap.js';
+import { toast } from 'sonner';
 
 const SPS_DEFAULT_COORDINATES = { lat: 15.5042, lng: -88.0250 };
 
@@ -42,6 +43,7 @@ export default function HomePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const isCollector = user?.type === 'collector';
+  const isGenerator = user?.type === 'generator';
   const [viewMode, setViewMode] = useState<'map' | 'list'>('map');
   const [collectionPoints, setCollectionPoints] = useState<CollectionPoint[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -55,6 +57,11 @@ export default function HomePage() {
   });
   const [loading, setLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [peerConnection, setPeerConnection] = useState<RTCPeerConnection | null>(null);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [isScreenShareActive, setIsScreenShareActive] = useState(false);
+  const requestPollRef = useRef<number | null>(null);
+  const answerPollRef = useRef<number | null>(null);
 
   useEffect(() => {
     loadData();
@@ -85,6 +92,195 @@ export default function HomePage() {
       { timeout: 8000 },
     );
   }, []);
+
+  const stopScreenShare = async () => {
+    if (answerPollRef.current) {
+      window.clearInterval(answerPollRef.current);
+      answerPollRef.current = null;
+    }
+
+    if (peerConnection) {
+      peerConnection.close();
+      setPeerConnection(null);
+    }
+
+    if (localStream) {
+      localStream.getTracks().forEach((track) => track.stop());
+      setLocalStream(null);
+    }
+
+    setIsScreenShareActive(false);
+  };
+
+  const startScreenShare = async (sessionId: string) => {
+    if (isScreenShareActive) return;
+
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const pc = new RTCPeerConnection();
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.addEventListener('ended', () => {
+          void stopScreenShare();
+        });
+      }
+
+      pc.onicecandidate = async (event) => {
+        if (!event.candidate) return;
+        try {
+          await fetch(`${API_BASE_URL}/analytics/session/screen-share-ice`, {
+            method: 'POST',
+            headers: getAuthHeaders(true),
+            body: JSON.stringify({ sessionId, candidate: event.candidate }),
+          });
+        } catch {
+          // Ignore transient ICE signaling errors.
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      await fetch(`${API_BASE_URL}/analytics/session/screen-share-offer`, {
+        method: 'POST',
+        headers: getAuthHeaders(true),
+        body: JSON.stringify({ sessionId, sdp: offer.sdp }),
+      });
+
+      setPeerConnection(pc);
+      setLocalStream(stream);
+      setIsScreenShareActive(true);
+      toast.success('Compartiendo pantalla con soporte remoto');
+
+      answerPollRef.current = window.setInterval(async () => {
+        try {
+          const answerResp = await fetch(`${API_BASE_URL}/analytics/session/screen-share-answer/${sessionId}`, {
+            method: 'GET',
+            headers: getAuthHeaders(true),
+          });
+          const answerData = await answerResp.json();
+          if (answerData?.answer?.sdp && !pc.currentRemoteDescription) {
+            await pc.setRemoteDescription({ type: 'answer', sdp: answerData.answer.sdp });
+          }
+
+          const iceResp = await fetch(`${API_BASE_URL}/analytics/session/screen-share-ice/${sessionId}/admin`, {
+            method: 'GET',
+            headers: getAuthHeaders(true),
+          });
+          const iceData = await iceResp.json();
+          if (Array.isArray(iceData?.candidates)) {
+            for (const candidate of iceData.candidates) {
+              try {
+                await pc.addIceCandidate(candidate);
+              } catch {
+                // Ignore duplicated/invalid candidates.
+              }
+            }
+          }
+        } catch {
+          // Keep polling while session is active.
+        }
+      }, 2500);
+    } catch (error) {
+      console.error('Generator WebRTC error:', error);
+      toast.error('No se pudo iniciar el screen-share');
+      await stopScreenShare();
+    }
+  };
+
+  const requestRemoteAssistance = async () => {
+    const sessionId = sessionStorage.getItem(ANALYTICS_SESSION_ID_KEY);
+    if (!sessionId) {
+      toast.error('No se encontro la sesion activa');
+      return;
+    }
+
+    const confirmed = window.confirm('Deseas solicitar asistencia remota al administrador?');
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/analytics/session/screen-share-request/self`, {
+        method: 'POST',
+        headers: getAuthHeaders(true),
+        body: JSON.stringify({ sessionId }),
+      });
+
+      if (!response.ok) {
+        throw new Error('No se pudo enviar la solicitud');
+      }
+
+      toast.success('Solicitud enviada. Espera a que el administrador inicie la asistencia.');
+    } catch (error) {
+      console.error('Generator assistance request error:', error);
+      toast.error('No se pudo enviar la solicitud de asistencia');
+    }
+  };
+
+  useEffect(() => {
+    if (!isGenerator) return;
+
+    const sessionId = sessionStorage.getItem(ANALYTICS_SESSION_ID_KEY);
+    if (!sessionId) return;
+
+    requestPollRef.current = window.setInterval(async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/analytics/session/screen-share-request/${sessionId}`, {
+          method: 'GET',
+          headers: getAuthHeaders(true),
+        });
+        const data = await response.json();
+        const requestStatus = data?.request?.status;
+
+        if (requestStatus === 'stopped' && isScreenShareActive) {
+          await stopScreenShare();
+          toast.info('El administrador finalizo la asistencia remota');
+          return;
+        }
+
+        if (isScreenShareActive) return;
+        if (requestStatus !== 'pending') return;
+
+        const accepted = window.confirm('El administrador solicita ver tu pantalla. Deseas compartirla ahora?');
+        await fetch(`${API_BASE_URL}/analytics/session/screen-share-request/${sessionId}/status`, {
+          method: 'POST',
+          headers: getAuthHeaders(true),
+          body: JSON.stringify({ status: accepted ? 'accepted' : 'rejected' }),
+        });
+
+        if (accepted) {
+          await startScreenShare(sessionId);
+        }
+      } catch (error) {
+        console.error('Generator screen-share poll error:', error);
+      }
+    }, 3500);
+
+    return () => {
+      if (requestPollRef.current) {
+        window.clearInterval(requestPollRef.current);
+        requestPollRef.current = null;
+      }
+    };
+  }, [isGenerator, isScreenShareActive]);
+
+  useEffect(() => {
+    return () => {
+      if (requestPollRef.current) {
+        window.clearInterval(requestPollRef.current);
+      }
+      if (answerPollRef.current) {
+        window.clearInterval(answerPollRef.current);
+      }
+      if (peerConnection) {
+        peerConnection.close();
+      }
+      if (localStream) {
+        localStream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [peerConnection, localStream]);
 
   const openDirections = (lat: number, lng: number) => {
     const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
@@ -223,6 +419,21 @@ export default function HomePage() {
             >
               <Plus className="w-4 h-4 mr-2" />
               Nueva Recolección
+            </Button>
+          )}
+          {/* Botón asistencia remota para generador */}
+          {isGenerator && (
+            <Button
+              className="flex-1 bg-orange-600 hover:bg-orange-700"
+              onClick={() => {
+                if (isScreenShareActive) {
+                  void stopScreenShare();
+                  return;
+                }
+                void requestRemoteAssistance();
+              }}
+            >
+              {isScreenShareActive ? 'Detener comparticion' : 'Solicitar asistencia remota'}
             </Button>
           )}
           <Button variant="outline" size="icon">

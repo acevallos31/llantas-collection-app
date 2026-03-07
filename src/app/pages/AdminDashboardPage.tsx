@@ -1,7 +1,7 @@
-import { useEffect, useState, type ChangeEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext.tsx';
-import { ANALYTICS_SESSION_ID_KEY, adminAPI } from '../services/api.ts';
+import { ANALYTICS_SESSION_ID_KEY, adminAPI } from '../services/api.js';
 import { Card } from '../components/ui/card.tsx';
 import { Button } from '../components/ui/button.tsx';
 import { Input } from '../components/ui/input.tsx';
@@ -25,6 +25,7 @@ import {
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { API_BASE_URL, getAuthHeaders, authAPI } from '../services/api.js';
 
 interface AdminSettings {
   appName: string;
@@ -144,9 +145,15 @@ const defaultCreateUserForm = {
   type: 'generator' as 'generator' | 'collector' | 'admin',
 };
 
+// ...existing code...
+
 export default function AdminDashboardPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  // WebRTC señalización para recibir stream
+  const [adminPeerConnection, setAdminPeerConnection] = useState<RTCPeerConnection | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
+  const [webRTCError, setWebRTCError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [reports, setReports] = useState<any | null>(null);
@@ -203,9 +210,18 @@ export default function AdminDashboardPage() {
   const [selectedActiveSessionIds, setSelectedActiveSessionIds] = useState<string[]>([]);
   const [activeSessionsError, setActiveSessionsError] = useState<string | null>(null);
   const [activeSessionsPollingEnabled, setActiveSessionsPollingEnabled] = useState(true);
+  const [updatingIncludeAdminSessions, setUpdatingIncludeAdminSessions] = useState(false);
   const [monitoredSessionId, setMonitoredSessionId] = useState<string | null>(null);
   const [sessionActivityData, setSessionActivityData] = useState<ActiveSessionActivity | null>(null);
   const [sessionActivityLoading, setSessionActivityLoading] = useState(false);
+  const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
+  const [liveSessionData, setLiveSessionData] = useState<ActiveSessionActivity | null>(null);
+  const [liveSessionLoading, setLiveSessionLoading] = useState(false);
+  const [requestingLiveSessionId, setRequestingLiveSessionId] = useState<string | null>(null);
+  const [assistanceRequestedSessions, setAssistanceRequestedSessions] = useState<Record<string, boolean>>({});
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const offerPollRef = useRef<number | null>(null);
+  const collectorIcePollRef = useRef<number | null>(null);
   const [campaignForm, setCampaignForm] = useState({
     name: '',
     startsAt: '',
@@ -228,9 +244,21 @@ export default function AdminDashboardPage() {
   const isAdmin = user?.type === 'admin';
 
   useEffect(() => {
-    if (!isAdmin) return;
-    void loadAdminData();
-  }, [isAdmin]);
+    if (!remoteVideoRef.current) return;
+    remoteVideoRef.current.srcObject = remoteStream;
+  }, [remoteStream]);
+
+  useEffect(() => {
+    try {
+      if (!user || user.type !== 'admin') return;
+      const sessionId = sessionStorage.getItem('ecolant_session_id');
+      if (!sessionId) return;
+      void loadAdminData();
+    } catch (err) {
+      console.error('Admin WebRTC error:', err);
+      setWebRTCError('Error en la inicialización de asistencia remota');
+    }
+  }, [user]);
 
   const loadAdminData = async () => {
     try {
@@ -459,11 +487,39 @@ export default function AdminDashboardPage() {
       const activeIds = Array.isArray(result?.sessions)
         ? result.sessions.map((item: ActiveAnalyticsSession) => item.sessionId)
         : [];
+
+      if (activeIds.length > 0) {
+        const entries = await Promise.all(
+          activeIds.map(async (sessionId: string) => {
+            try {
+              const response = await fetch(`${API_BASE_URL}/analytics/session/screen-share-request/${sessionId}`, {
+                method: 'GET',
+                headers: getAuthHeaders(true),
+              });
+              const data = await response.json();
+              const hasRequest = data?.request?.status === 'user-requested';
+              return [sessionId, hasRequest] as const;
+            } catch {
+              return [sessionId, false] as const;
+            }
+          }),
+        );
+        setAssistanceRequestedSessions(Object.fromEntries(entries));
+      } else {
+        setAssistanceRequestedSessions({});
+      }
+
       setSelectedActiveSessionIds((prev) => prev.filter((id) => activeIds.includes(id)));
       setMonitoredSessionId((prev) => {
         if (!prev) return prev;
         if (activeIds.includes(prev)) return prev;
         setSessionActivityData(null);
+        return null;
+      });
+      setLiveSessionId((prev) => {
+        if (!prev) return prev;
+        if (activeIds.includes(prev)) return prev;
+        setLiveSessionData(null);
         return null;
       });
     } catch (error: any) {
@@ -497,6 +553,10 @@ export default function AdminDashboardPage() {
         setMonitoredSessionId(null);
         setSessionActivityData(null);
       }
+      if (liveSessionId === sessionId) {
+        setLiveSessionId(null);
+        setLiveSessionData(null);
+      }
       await loadActiveSessionsControl();
       toast.success('Sesion cerrada');
     } catch (error: any) {
@@ -516,6 +576,21 @@ export default function AdminDashboardPage() {
       toast.success('Se cerraron todas las sesiones excepto la del administrador actual');
     } catch (error: any) {
       toast.error(error.message || 'No se pudieron cerrar las sesiones');
+    }
+  };
+
+  const handleToggleIncludeAdminSessions = async () => {
+    const nextValue = !settings.includeAdminAnalytics;
+    try {
+      setUpdatingIncludeAdminSessions(true);
+      await adminAPI.updateSettings({ includeAdminAnalytics: nextValue });
+      setSettings((prev) => ({ ...prev, includeAdminAnalytics: nextValue }));
+      await loadActiveSessionsControl({ silent: true });
+      toast.success(nextValue ? 'Sesiones de administradores habilitadas' : 'Sesiones de administradores deshabilitadas');
+    } catch (error: any) {
+      toast.error(error?.message || 'No se pudo actualizar la opción de sesiones admin');
+    } finally {
+      setUpdatingIncludeAdminSessions(false);
     }
   };
 
@@ -586,6 +661,176 @@ export default function AdminDashboardPage() {
     await loadSessionActivity(sessionId);
   };
 
+  const loadLiveSession = async (sessionId: string, options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    try {
+      setLiveSessionLoading(true);
+      const result = await adminAPI.getAnalyticsSessionActivity(sessionId, 25);
+      setLiveSessionData(result || null);
+    } catch (error: any) {
+      if (!silent) {
+        toast.error(error?.message || 'No se pudo cargar la vista en vivo');
+      }
+    } finally {
+      setLiveSessionLoading(false);
+    }
+  };
+
+  const handleWatchSessionLive = async (sessionId: string) => {
+    if (requestingLiveSessionId === sessionId) return;
+    if (liveSessionId === sessionId) return;
+
+    try {
+      setRequestingLiveSessionId(sessionId);
+      await requestScreenShare(sessionId);
+      await startRemoteStream(sessionId);
+      setLiveSessionId(sessionId);
+      await loadLiveSession(sessionId);
+    } finally {
+      setRequestingLiveSessionId((current) => (current === sessionId ? null : current));
+    }
+  };
+
+  const stopRemoteStream = () => {
+    if (offerPollRef.current) {
+      window.clearInterval(offerPollRef.current);
+      offerPollRef.current = null;
+    }
+    if (collectorIcePollRef.current) {
+      window.clearInterval(collectorIcePollRef.current);
+      collectorIcePollRef.current = null;
+    }
+    if (adminPeerConnection) {
+      adminPeerConnection.close();
+      setAdminPeerConnection(null);
+    }
+    if (remoteStream) {
+      remoteStream.getTracks().forEach((track) => track.stop());
+      setRemoteStream(null);
+    }
+  };
+
+  const startRemoteStream = async (sessionId: string) => {
+    stopRemoteStream();
+    setWebRTCError(null);
+
+    try {
+      const pc = new RTCPeerConnection();
+      const processedCandidates = new Set<string>();
+
+      pc.ontrack = (event) => {
+        const [stream] = event.streams;
+        if (stream) {
+          setRemoteStream(stream);
+        }
+      };
+
+      pc.onicecandidate = async (event) => {
+        if (!event.candidate) return;
+        try {
+          await fetch(`${API_BASE_URL}/analytics/session/screen-share-ice/admin`, {
+            method: 'POST',
+            headers: getAuthHeaders(true),
+            body: JSON.stringify({ sessionId, candidate: event.candidate }),
+          });
+        } catch {
+          // Ignore transient ICE signaling errors.
+        }
+      };
+
+      setAdminPeerConnection(pc);
+
+      offerPollRef.current = window.setInterval(async () => {
+        try {
+          const offerResp = await fetch(`${API_BASE_URL}/analytics/session/screen-share-offer/${sessionId}`, {
+            method: 'GET',
+            headers: getAuthHeaders(true),
+          });
+          const offerData = await offerResp.json();
+
+          if (offerData?.offer?.sdp && !pc.currentRemoteDescription) {
+            await pc.setRemoteDescription({ type: 'offer', sdp: offerData.offer.sdp });
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+
+            await fetch(`${API_BASE_URL}/analytics/session/screen-share-answer`, {
+              method: 'POST',
+              headers: getAuthHeaders(true),
+              body: JSON.stringify({ sessionId, sdp: answer.sdp }),
+            });
+          }
+        } catch {
+          // Keep polling while waiting for collector offer.
+        }
+      }, 2000);
+
+      collectorIcePollRef.current = window.setInterval(async () => {
+        try {
+          const iceResp = await fetch(`${API_BASE_URL}/analytics/session/screen-share-ice/${sessionId}/collector`, {
+            method: 'GET',
+            headers: getAuthHeaders(true),
+          });
+          const iceData = await iceResp.json();
+          if (!Array.isArray(iceData?.candidates)) return;
+
+          for (const candidate of iceData.candidates) {
+            const key = JSON.stringify(candidate);
+            if (processedCandidates.has(key)) continue;
+
+            try {
+              await pc.addIceCandidate(candidate);
+              processedCandidates.add(key);
+            } catch {
+              // Ignore duplicated/invalid candidates.
+            }
+          }
+        } catch {
+          // Keep polling while stream is active.
+        }
+      }, 2000);
+    } catch (error) {
+      console.error('Admin WebRTC receiver error:', error);
+      setWebRTCError('No se pudo establecer la recepcion de pantalla remota');
+      stopRemoteStream();
+    }
+  };
+
+  const requestScreenShare = async (sessionId: string) => {
+    try {
+      const currentUser = authAPI.getCurrentUser();
+      if (!currentUser) {
+        toast.error('No se pudo identificar el admin');
+        return;
+      }
+      const response = await fetch(`${API_BASE_URL}/analytics/session/screen-share-request`, {
+        method: 'POST',
+        headers: getAuthHeaders(true),
+        body: JSON.stringify({ sessionId, requesterId: currentUser.id }),
+      });
+      if (!response.ok) {
+        toast.error('No se pudo enviar la solicitud');
+        return;
+      }
+      toast.success('Solicitud de screen-share enviada');
+    } catch (err) {
+      toast.error('Error enviando solicitud');
+    }
+  };
+
+  const handleStopLiveAssistance = async (sessionId: string) => {
+    try {
+      await fetch(`${API_BASE_URL}/analytics/session/screen-share-request/${sessionId}/status`, {
+        method: 'POST',
+        headers: getAuthHeaders(true),
+        body: JSON.stringify({ status: 'stopped' }),
+      });
+      stopRemoteStream();
+      toast.success('Asistencia remota finalizada');
+    } catch {
+      toast.error('No se pudo finalizar la asistencia remota');
+    }
+  };
+
   useEffect(() => {
     if (!monitoredSessionId) return;
 
@@ -597,6 +842,30 @@ export default function AdminDashboardPage() {
       window.clearInterval(intervalId);
     };
   }, [monitoredSessionId]);
+
+  useEffect(() => {
+    if (!liveSessionId) return;
+
+    const intervalId = window.setInterval(() => {
+      void loadLiveSession(liveSessionId, { silent: true });
+    }, 2000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [liveSessionId]);
+
+  useEffect(() => {
+    if (!liveSessionId) {
+      stopRemoteStream();
+    }
+  }, [liveSessionId]);
+
+  useEffect(() => {
+    return () => {
+      stopRemoteStream();
+    };
+  }, []);
 
   useEffect(() => {
     if (!isAdmin || !activeSessionsPollingEnabled) return;
@@ -626,12 +895,7 @@ export default function AdminDashboardPage() {
     }
     return `${Math.round(safeDurationMs)}ms`;
   };
-
-  const formatServerDateTime = (value?: string | null) => {
-    if (!value) return 'N/A';
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return 'N/A';
-
+  const formatDateWithTimezone = (parsed: Date) => {
     try {
       return parsed.toLocaleString('es-HN', {
         timeZone: settings.serverTimezone || 'America/Tegucigalpa',
@@ -639,6 +903,13 @@ export default function AdminDashboardPage() {
     } catch {
       return parsed.toLocaleString();
     }
+  };
+
+  const formatServerDateTime = (iso: string | null | undefined) => {
+    if (!iso) return '';
+    const parsed = new Date(iso);
+    if (Number.isNaN(parsed.getTime())) return iso;
+    return formatDateWithTimezone(parsed);
   };
 
   const toDateTimeLocalValue = (iso: string | null) => {
@@ -1570,6 +1841,19 @@ export default function AdminDashboardPage() {
                       size="sm"
                       variant="outline"
                       className="bg-white/5 border-white/30 text-white hover:bg-white/15"
+                      onClick={() => void handleToggleIncludeAdminSessions()}
+                      disabled={updatingIncludeAdminSessions}
+                    >
+                      {updatingIncludeAdminSessions
+                        ? 'Guardando...'
+                        : settings.includeAdminAnalytics
+                          ? 'Admin: ON'
+                          : 'Admin: OFF'}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="bg-white/5 border-white/30 text-white hover:bg-white/15"
                       onClick={() => void loadActiveSessionsControl({ silent: false })}
                       disabled={activeSessionsLoading}
                     >
@@ -1632,8 +1916,78 @@ export default function AdminDashboardPage() {
                     </Button>
                   </div>
 
-                  <div className="rounded-md border overflow-hidden">
-                    <div className="grid grid-cols-12 gap-2 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
+                  <div className="space-y-2 md:hidden">
+                    {activeSessionsData?.sessions?.map((item) => {
+                      const isSelected = selectedActiveSessionIds.includes(item.sessionId);
+                      const isCurrent = Boolean(item.isCurrentSession);
+                      return (
+                        <Card key={item.sessionId} className={`p-3 ${isSelected ? 'ring-2 ring-blue-300' : ''}`}>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-xs text-slate-500 truncate">Sesion</p>
+                              <p className="font-medium text-xs truncate" title={item.sessionId}>{item.sessionId}</p>
+                              {assistanceRequestedSessions[item.sessionId] && (
+                                <Badge className="mt-1 bg-orange-600 text-white hover:bg-orange-600">Solicito asistencia</Badge>
+                              )}
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              disabled={isCurrent}
+                              onChange={() => handleToggleActiveSessionSelection(item.sessionId)}
+                              aria-label={`Seleccionar sesion ${item.sessionId}`}
+                            />
+                          </div>
+
+                          <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                            <div className="rounded border p-2 bg-slate-50">
+                              <p className="text-slate-500">Usuario</p>
+                              <p className="font-medium truncate">{item.userName || 'Invitado'}</p>
+                              <p className="text-[10px] text-slate-500 truncate">{item.userEmail || 'sin correo'}</p>
+                            </div>
+                            <div className="rounded border p-2 bg-slate-50">
+                              <p className="text-slate-500">Estado</p>
+                              <div className="mt-1">
+                                {isCurrent ? (
+                                  <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">Tu sesión</Badge>
+                                ) : (
+                                  <Badge variant="secondary">Remota</Badge>
+                                )}
+                              </div>
+                            </div>
+                            <div className="rounded border p-2 bg-slate-50 col-span-2">
+                              <p className="text-slate-500">Ultima ruta</p>
+                              <p className="font-medium truncate">{item.lastPath || 'Sin ruta reciente'}</p>
+                            </div>
+                            <div className="rounded border p-2 bg-slate-50 col-span-2">
+                              <p className="text-slate-500">Ultimo ping</p>
+                              <p className="font-medium">{formatServerDateTime(item.lastSeenAt)}</p>
+                            </div>
+                          </div>
+
+                          <div className="mt-3 flex gap-2">
+                            <Button size="sm" variant="outline" className="flex-1" onClick={() => void handleMonitorSession(item.sessionId)}>
+                              Estadistica
+                            </Button>
+                            <Button size="sm" variant="outline" className="flex-1" onClick={() => void handleWatchSessionLive(item.sessionId)}>
+                              {requestingLiveSessionId === item.sessionId ? 'Conectando...' : 'Ver'}
+                            </Button>
+                            <Button size="sm" variant="destructive" className="flex-1" disabled={isCurrent} onClick={() => void handleCloseOneActiveSession(item.sessionId)}>
+                              Cerrar
+                            </Button>
+                          </div>
+                        </Card>
+                      );
+                    })}
+
+                    {(!activeSessionsData || activeSessionsData.sessions.length === 0) && (
+                      <div className="px-3 py-8 text-center text-sm text-gray-500 border rounded-md bg-white">No hay sesiones activas.</div>
+                    )}
+                  </div>
+
+                  <div className="rounded-md border overflow-hidden hidden md:block">
+                    <div className="overflow-x-auto">
+                    <div className="grid min-w-[860px] grid-cols-12 gap-2 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
                       <span className="col-span-1">Sel</span>
                       <span className="col-span-3">Sesion</span>
                       <span className="col-span-2">Usuario</span>
@@ -1648,7 +2002,7 @@ export default function AdminDashboardPage() {
                         const isSelected = selectedActiveSessionIds.includes(item.sessionId);
                         const isCurrent = Boolean(item.isCurrentSession);
                         return (
-                          <div key={item.sessionId} className={`grid grid-cols-12 gap-2 px-3 py-2 border-t text-xs items-center ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
+                          <div key={item.sessionId} className={`grid min-w-[860px] grid-cols-12 gap-2 px-3 py-2 border-t text-xs items-center ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
                             <div className="col-span-1">
                               <input
                                 type="checkbox"
@@ -1663,6 +2017,9 @@ export default function AdminDashboardPage() {
                               <p className="text-[10px] text-slate-500 truncate" title={item.lastPath || ''}>
                                 {item.lastPath ? `Ruta: ${item.lastPath}` : 'Sin ruta reciente'}
                               </p>
+                              {assistanceRequestedSessions[item.sessionId] && (
+                                <Badge className="mt-1 bg-orange-600 text-white hover:bg-orange-600">Solicito asistencia</Badge>
+                              )}
                             </div>
                             <div className="col-span-2">
                               <p className="font-medium truncate" title={item.userName || ''}>{item.userName || 'Invitado'}</p>
@@ -1682,10 +2039,13 @@ export default function AdminDashboardPage() {
                               {formatServerDateTime(item.lastSeenAt)}
                             </div>
                             <div className="col-span-2 flex justify-end gap-1">
-                              <Button size="sm" variant="outline" onClick={() => void handleMonitorSession(item.sessionId)}>
-                                Ver
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => void handleMonitorSession(item.sessionId)}>
+                                Estadistica
                               </Button>
-                              <Button size="sm" variant="destructive" disabled={isCurrent} onClick={() => void handleCloseOneActiveSession(item.sessionId)}>
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={() => void handleWatchSessionLive(item.sessionId)}>
+                                {requestingLiveSessionId === item.sessionId ? 'Conectando...' : 'Ver'}
+                              </Button>
+                              <Button size="sm" variant="destructive" className="h-7 px-2 text-[11px]" disabled={isCurrent} onClick={() => void handleCloseOneActiveSession(item.sessionId)}>
                                 Cerrar
                               </Button>
                             </div>
@@ -1694,19 +2054,20 @@ export default function AdminDashboardPage() {
                       })}
 
                       {(!activeSessionsData || activeSessionsData.sessions.length === 0) && (
-                        <div className="px-3 py-8 text-center text-sm text-gray-500">No hay sesiones activas.</div>
+                        <div className="min-w-[860px] px-3 py-8 text-center text-sm text-gray-500">No hay sesiones activas.</div>
                       )}
+                    </div>
                     </div>
                   </div>
 
                   <Card className="p-4">
                     <div className="flex items-center justify-between gap-2">
                       <div>
-                        <h4 className="font-semibold">Monitoreo en tiempo real</h4>
+                        <h4 className="font-semibold">Estadistica de sesion</h4>
                         <p className="text-xs text-slate-500">
                           {monitoredSessionId
-                            ? `Sesion: ${monitoredSessionId}`
-                            : 'Selecciona una sesion y pulsa "Ver" para monitorear actividad.'}
+                            ? `Sesion analizada: ${monitoredSessionId}`
+                            : 'Selecciona una sesion y pulsa "Estadistica" para analizar actividad.'}
                         </p>
                       </div>
                       {monitoredSessionId && (
@@ -1718,11 +2079,18 @@ export default function AdminDashboardPage() {
 
                     {sessionActivityData && (
                       <div className="mt-3 space-y-2">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                          <div className="rounded border p-2 bg-slate-50"><strong>Eventos:</strong> {sessionActivityData.events.length}</div>
+                          <div className="rounded border p-2 bg-slate-50"><strong>Visitas:</strong> {sessionActivityData.events.filter((event) => event.type === 'visit').length}</div>
+                          <div className="rounded border p-2 bg-slate-50"><strong>Pings:</strong> {sessionActivityData.events.filter((event) => event.type === 'ping').length}</div>
+                          <div className="rounded border p-2 bg-slate-50"><strong>Cargas:</strong> {sessionActivityData.events.filter((event) => event.type === 'load').length}</div>
+                        </div>
+
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                           <div className="rounded border p-2 bg-slate-50"><strong>Usuario:</strong> {sessionActivityData.userName || 'Invitado'}</div>
                           <div className="rounded border p-2 bg-slate-50"><strong>Correo:</strong> {sessionActivityData.userEmail || 'sin correo'}</div>
-                          <div className="rounded border p-2 bg-slate-50"><strong>Ultima ruta:</strong> {sessionActivityData.lastPath || 'sin registro'}</div>
-                          <div className="rounded border p-2 bg-slate-50"><strong>Ultima actividad:</strong> {formatServerDateTime(sessionActivityData.lastActivityAt)}</div>
+                          <div className="rounded border p-2 bg-slate-50 col-span-1 md:col-span-2"><strong>Pantalla actual (ruta):</strong> {sessionActivityData.lastPath || 'Sin ruta reciente'}</div>
+                          <div className="rounded border p-2 bg-slate-50 col-span-1 md:col-span-2"><strong>Ultimo movimiento:</strong> {formatServerDateTime(sessionActivityData.lastActivityAt)}</div>
                         </div>
 
                         <div className="rounded border max-h-52 overflow-y-auto">
@@ -1730,6 +2098,75 @@ export default function AdminDashboardPage() {
                             <div className="px-3 py-4 text-xs text-slate-500">No hay eventos registrados para esta sesion todavia.</div>
                           ) : (
                             sessionActivityData.events.map((event) => (
+                              <div key={event.id} className="px-3 py-2 border-t text-xs bg-white">
+                                <p className="font-medium">{event.type} {event.path ? `- ${event.path}` : ''}</p>
+                                <p className="text-slate-500">{formatServerDateTime(event.timestamp)}</p>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </Card>
+
+                  <Card className="p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <h4 className="font-semibold">Vista en vivo de navegacion</h4>
+                        <p className="text-xs text-slate-500">
+                          {liveSessionId
+                            ? `Sesion en vivo: ${liveSessionId}`
+                            : 'Selecciona una sesion y pulsa "Ver" para seguir su navegacion en tiempo real.'}
+                        </p>
+                      </div>
+                      {liveSessionId && (
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant="outline" onClick={() => void loadLiveSession(liveSessionId)} disabled={liveSessionLoading}>
+                            {liveSessionLoading ? 'Actualizando...' : 'Actualizar'}
+                          </Button>
+                          <Button size="sm" variant="destructive" onClick={() => void handleStopLiveAssistance(liveSessionId)}>
+                            Terminar asistencia
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    {liveSessionData && (
+                      <div className="mt-3 space-y-2">
+                        {webRTCError && (
+                          <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                            {webRTCError}
+                          </div>
+                        )}
+
+                        {remoteStream ? (
+                          <div className="rounded border bg-black p-2">
+                            <video
+                              ref={remoteVideoRef}
+                              autoPlay
+                              playsInline
+                              controls
+                              className="w-full max-h-72 rounded"
+                            />
+                          </div>
+                        ) : (
+                          <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                            Esperando stream remoto. Asegurate de que el recolector haya aceptado compartir pantalla.
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                          <div className="rounded border p-2 bg-slate-50"><strong>Usuario:</strong> {liveSessionData.userName || 'Invitado'}</div>
+                          <div className="rounded border p-2 bg-slate-50"><strong>Correo:</strong> {liveSessionData.userEmail || 'sin correo'}</div>
+                          <div className="rounded border p-2 bg-slate-50 col-span-1 md:col-span-2"><strong>Pantalla actual (ruta):</strong> {liveSessionData.lastPath || 'Sin ruta reciente'}</div>
+                          <div className="rounded border p-2 bg-slate-50 col-span-1 md:col-span-2"><strong>Ultimo movimiento:</strong> {formatServerDateTime(liveSessionData.lastActivityAt)}</div>
+                        </div>
+
+                        <div className="rounded border max-h-52 overflow-y-auto">
+                          {liveSessionData.events.length === 0 ? (
+                            <div className="px-3 py-4 text-xs text-slate-500">Aun no hay eventos para esta sesion.</div>
+                          ) : (
+                            liveSessionData.events.map((event) => (
                               <div key={event.id} className="px-3 py-2 border-t text-xs bg-white">
                                 <p className="font-medium">{event.type} {event.path ? `- ${event.path}` : ''}</p>
                                 <p className="text-slate-500">{formatServerDateTime(event.timestamp)}</p>

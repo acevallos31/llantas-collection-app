@@ -20,7 +20,7 @@ const normalizeApiBaseUrl = (rawValue?: string) => {
   }
 };
 
-const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL) || DEFAULT_API_BASE_URL;
+export const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL) || DEFAULT_API_BASE_URL;
 
 console.log('🔧 API Base URL:', API_BASE_URL);
 console.log('🔑 Project ID:', projectId);
@@ -62,7 +62,7 @@ const resolveErrorMessage = (payload: any, fallbackMessage: string) => {
 };
 
 // Helper to get auth headers
-const getAuthHeaders = (includeAuth = true) => {
+export const getAuthHeaders = (includeAuth = true) => {
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
   };
@@ -70,11 +70,14 @@ const getAuthHeaders = (includeAuth = true) => {
   if (includeAuth) {
     const token = localStorage.getItem(ACCESS_TOKEN_KEY);
     if (token) {
+      // User is authenticated - send user token
       headers['Authorization'] = `Bearer ${token}`;
     } else {
+      // No user token - send anon key for public endpoints
       headers['Authorization'] = `Bearer ${publicAnonKey}`;
     }
   } else {
+    // Explicitly public - always use anon key
     headers['Authorization'] = `Bearer ${publicAnonKey}`;
   }
   
@@ -861,25 +864,42 @@ export const analyticsAPI = {
 
   async trackAppLoadTime(loadTimeMs: number) {
     try {
-      await fetch(`${API_BASE_URL}/analytics/load`, {
+      const response = await fetch(`${API_BASE_URL}/analytics/load`, {
         method: 'POST',
         headers: getAuthHeaders(true),
         body: JSON.stringify({ loadTimeMs, userType: getAnalyticsUserType() }),
       });
-    } catch {
-      // Silently ignore analytics failures in prototype mode.
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('❌ trackAppLoadTime failed:', response.status, errorData);
+      }
+    } catch (error) {
+      console.error('💥 trackAppLoadTime exception:', error);
     }
   },
 
   async startSession(sessionId: string, startedAt: string) {
     try {
-      await fetch(`${API_BASE_URL}/analytics/session/start`, {
+      const response = await fetch(`${API_BASE_URL}/analytics/session/start`, {
         method: 'POST',
         headers: getAuthHeaders(true),
         body: JSON.stringify({ sessionId, startedAt, userType: getAnalyticsUserType() }),
       });
+
+      if (response.ok) {
+        return { blocked: false };
+      }
+
+      const result = await parseResponseBody(response);
+      if (response.status === 409 && result?.code === 'SESSION_BLOCKED') {
+        return { blocked: true };
+      }
+
+      return { blocked: false };
     } catch {
       // Silently ignore analytics failures in prototype mode.
+      return { blocked: false };
     }
   },
 
@@ -906,13 +926,25 @@ export const analyticsAPI = {
 
   async pingSession(sessionId: string) {
     try {
-      await fetch(`${API_BASE_URL}/analytics/session/ping`, {
+      const response = await fetch(`${API_BASE_URL}/analytics/session/ping`, {
         method: 'POST',
         headers: getAuthHeaders(true),
         body: JSON.stringify({ sessionId, userType: getAnalyticsUserType() }),
       });
+
+      if (response.ok) {
+        return { blocked: false };
+      }
+
+      const result = await parseResponseBody(response);
+      if (response.status === 409 && result?.code === 'SESSION_BLOCKED') {
+        return { blocked: true };
+      }
+
+      return { blocked: false };
     } catch {
       // Silently ignore analytics failures in prototype mode.
+      return { blocked: false };
     }
   },
 };
