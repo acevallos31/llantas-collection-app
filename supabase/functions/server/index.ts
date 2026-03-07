@@ -803,6 +803,12 @@ app.post('/server/analytics/session/screen-share-request/self', async (c) => {
       return c.json({ error: 'Unauthorized' }, 401);
     }
 
+    // Ensure session metadata exists with userId before checking permissions
+    await upsertSessionMeta(sessionId, {
+      userId: resolvedUser.id,
+      userType: resolvedUser.type,
+    });
+
     const allowed = await canAccessScreenShareSession(resolvedUser, sessionId);
     if (!allowed) {
       return c.json({ error: 'Forbidden' }, 403);
