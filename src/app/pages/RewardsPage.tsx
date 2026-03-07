@@ -107,13 +107,50 @@ export default function RewardsPage() {
   };
   
   const handleViewCoupon = (redemptionId: string) => {
-    const couponUrl = rewardsAPI.getCouponUrl(redemptionId);
-    window.open(couponUrl, '_blank');
+    const couponUrl = `${rewardsAPI.getCouponUrl(redemptionId)}?ts=${Date.now()}`;
+    const popup = window.open('', '_blank');
+    if (!popup) {
+      toast.error('El navegador bloqueó la ventana del cupón. Habilita popups para continuar.');
+      return;
+    }
+
+    void (async () => {
+      try {
+        const response = await fetch(couponUrl, { cache: 'no-store' });
+        const html = await response.text();
+        popup.document.open();
+        popup.document.write(html);
+        popup.document.close();
+      } catch {
+        popup.close();
+        toast.error('No se pudo abrir el cupón');
+      }
+    })();
   };
 
   const handlePrintCoupon = (redemptionId: string) => {
-    const couponUrl = `${rewardsAPI.getCouponUrl(redemptionId)}?print=1`;
-    window.open(couponUrl, '_blank');
+    const couponUrl = `${rewardsAPI.getCouponUrl(redemptionId)}?ts=${Date.now()}`;
+    const popup = window.open('', '_blank');
+    if (!popup) {
+      toast.error('El navegador bloqueó la ventana de impresión. Habilita popups para continuar.');
+      return;
+    }
+
+    void (async () => {
+      try {
+        const response = await fetch(couponUrl, { cache: 'no-store' });
+        const html = await response.text();
+        const withPrint = html.includes('</body>')
+          ? html.replace('</body>', '<script>window.onload=function(){window.print();};</script></body>')
+          : `${html}<script>window.onload=function(){window.print();};</script>`;
+        popup.document.open();
+        popup.document.write(withPrint);
+        popup.document.close();
+      } catch {
+        popup.close();
+        toast.error('No se pudo generar el PDF del cupón');
+      }
+    })();
   };
 
   const filteredRewards = selectedCategory === 'all' 
