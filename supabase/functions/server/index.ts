@@ -3123,6 +3123,109 @@ app.post("/server/rewards/seed", async (c) => {
   }
 });
 
+// Helper to generate coupon code
+const generateCouponCode = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = 'ECO-';
+  for (let i = 0; i < 12; i++) {
+    if (i > 0 && i % 4 === 0) code += '-';
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code; // Format: ECO-XXXX-XXXX-XXXX
+};
+
+// Helper to generate coupon HTML
+const generateCouponHTML = (couponCode: string, redemption: any, reward: any, user: any) => {
+  const expiryDate = new Date(redemption.expiresAt).toLocaleDateString('es-HN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+  
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Cupón EcolLant - ${couponCode}</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+    .coupon { max-width: 600px; margin: 0 auto; background: white; border: 3px solid #10b981; border-radius: 12px; overflow: hidden; }
+    .header { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 30px; text-align: center; }
+    .header h1 { font-size: 28px; margin-bottom: 10px; }
+    .header p { font-size: 14px; opacity: 0.9; }
+    .content { padding: 30px; }
+    .code-box { background: #f0fdf4; border: 2px dashed #10b981; border-radius: 8px; padding: 20px; text-align: center; margin: 20px 0; }
+    .code { font-size: 24px; font-weight: bold; color: #059669; letter-spacing: 2px; }
+    .reward-title { font-size: 22px; color: #1f2937; margin-bottom: 15px; font-weight: bold; }
+    .reward-desc { color: #6b7280; margin-bottom: 20px; line-height: 1.6; }
+    .info-row { display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
+    .info-label { color: #6b7280; font-size: 14px; }
+    .info-value { color: #1f2937; font-weight: 600; font-size: 14px; }
+    .footer { background: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb; }
+    .instructions { background: #fffbeb; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; }
+    .instructions h3 { color: #92400e; font-size: 14px; margin-bottom: 8px; }
+    .instructions p { color: #78350f; font-size: 13px; line-height: 1.5; }
+    @media print {
+      body { background: white; padding: 0; }
+      .coupon { border: 2px solid #10b981; }
+    }
+  </style>
+</head>
+<body>
+  <div class="coupon">
+    <div class="header">
+      <h1>🎁 Cupón de Recompensa</h1>
+      <p>EcolLantApp - Reciclaje de Llantas</p>
+    </div>
+    <div class="content">
+      <div class="code-box">
+        <div style="font-size: 12px; color: #059669; margin-bottom: 8px;">CÓDIGO DEL CUPÓN</div>
+        <div class="code">${couponCode}</div>
+      </div>
+      
+      <h2 class="reward-title">${reward.title}</h2>
+      <p class="reward-desc">${reward.description || 'Disfruta de tu recompensa en nuestros comercios afiliados.'}</p>
+      
+      <div class="info-row">
+        <span class="info-label">Beneficiario:</span>
+        <span class="info-value">${user.name || user.email}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Puntos Canjeados:</span>
+        <span class="info-value">${redemption.pointsCost} puntos</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Fecha de Emisión:</span>
+        <span class="info-value">${new Date(redemption.createdAt).toLocaleDateString('es-HN')}</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Válido hasta:</span>
+        <span class="info-value">${expiryDate}</span>
+      </div>
+      ${reward.sponsor ? `<div class="info-row">
+        <span class="info-label">Comercio Afiliado:</span>
+        <span class="info-value">${reward.sponsor}</span>
+      </div>` : ''}
+      
+      <div class="instructions">
+        <h3>📋 Instrucciones de Canje</h3>
+        <p>1. Presenta este cupón (impreso o digital) en el comercio afiliado<br>
+        2. El comercio verificará el código del cupón<br>
+        3. Una vez validado, podrás disfrutar de tu recompensa<br>
+        4. Este cupón es de un solo uso y no es transferible</p>
+      </div>
+    </div>
+    <div class="footer">
+      <p><strong>EcolLantApp</strong> - Sistema de Gestión de Reciclaje de Llantas</p>
+      <p>Cupón ID: ${redemption.id}</p>
+      <p>Para más información: soporte@ecollant.com | +504 2550-0001</p>
+    </div>
+  </div>
+</body>
+</html>`;
+};
+
 // Redeem a reward
 app.post("/server/rewards/:rewardId/redeem", async (c) => {
   try {
@@ -3155,31 +3258,288 @@ app.post("/server/rewards/:rewardId/redeem", async (c) => {
       return c.json({ error: 'Insufficient points' }, 400);
     }
     
+    // Generate unique coupon code
+    const couponCode = generateCouponCode();
+    
+    // Calculate expiry date (30 days from now)
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+    
     // Deduct points
     userProfile.points -= reward.pointsCost;
     await kv.set(`user:${user.id}`, userProfile);
     
-    // Create redemption record
+    // Create redemption record with coupon
     const redemptionId = crypto.randomUUID();
+    const now = new Date().toISOString();
     const redemption = {
       id: redemptionId,
       userId: user.id,
       rewardId,
       rewardTitle: reward.title,
-      pointsSpent: reward.pointsCost,
-      redeemedAt: new Date().toISOString(),
+      pointsCost: reward.pointsCost,
+      status: 'pending',
+      couponCode,
+      expiresAt: expiresAt.toISOString(),
+      createdAt: now,
     };
     
     await kv.set(`redemption:${user.id}:${redemptionId}`, redemption);
     
+    // Generate coupon HTML
+    const couponHTML = generateCouponHTML(couponCode, redemption, reward, userProfile);
+    
+    // Store HTML in Deno KV for retrieval
+    await kv.set(`coupon-html:${redemptionId}`, couponHTML);
+    
     return c.json({ 
-      redemption,
+      redemption: {
+        ...redemption,
+        couponUrl: `/server/coupons/${redemptionId}`,
+      },
       newPointsBalance: userProfile.points 
     });
     
   } catch (error) {
     console.log(`Redeem reward error: ${error}`);
     return c.json({ error: 'Error redeeming reward' }, 500);
+  }
+});
+
+// Get coupon HTML (for viewing/printing)
+app.get("/server/coupons/:redemptionId", async (c) => {
+  try {
+    const redemptionId = c.req.param('redemptionId');
+    const html = await kv.get(`coupon-html:${redemptionId}`);
+    
+    if (!html) {
+      return c.html('<h1>Cupón no encontrado</h1><p>Este cupón no existe o ha expirado.</p>', 404);
+    }
+    
+    return c.html(html);
+  } catch (error) {
+    console.log(`Get coupon error: ${error}`);
+    return c.html('<h1>Error</h1><p>Error al cargar el cupón.</p>', 500);
+  }
+});
+
+// Get user's redemptions/coupons
+app.get("/server/rewards/redemptions", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    
+    if (!user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    const redemptions = await kv.getByPrefix(`redemption:${user.id}:`);
+    
+    // Add coupon URLs and check expiry status
+    const now = new Date();
+    const enrichedRedemptions = redemptions.map((r: any) => ({
+      ...r,
+      couponUrl: `/server/coupons/${r.id}`,
+      isExpired: r.expiresAt ? new Date(r.expiresAt) < now : false,
+    }));
+    
+    return c.json(enrichedRedemptions);
+  } catch (error) {
+    console.log(`Get redemptions error: ${error}`);
+    return c.json({ error: 'Error getting redemptions' }, 500);
+  }
+});
+
+// Mark coupon as used (for merchants/admin)
+app.post("/server/coupons/:redemptionId/use", async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+    
+    const redemptionId = c.req.param('redemptionId');
+    const { notes } = await c.req.json();
+    
+    // Find the redemption
+    const redemptionKeys = await kv.getKeysByPrefix('redemption:');
+    let redemptionKey = null;
+    let redemption = null;
+    
+    for (const key of redemptionKeys) {
+      const value = await kv.get(key);
+      if (value?.id === redemptionId) {
+        redemptionKey = key;
+        redemption = value;
+        break;
+      }
+    }
+    
+    if (!redemption) {
+      return c.json({ error: 'Redemption not found' }, 404);
+    }
+    
+    if (redemption.status === 'used') {
+      return c.json({ error: 'Coupon already used' }, 400);
+    }
+    
+    if (redemption.status === 'expired') {
+      return c.json({ error: 'Coupon expired' }, 400);
+    }
+    
+    // Check if expired
+    if (redemption.expiresAt && new Date(redemption.expiresAt) < new Date()) {
+      redemption.status = 'expired';
+      await kv.set(redemptionKey, redemption);
+      return c.json({ error: 'Coupon has expired' }, 400);
+    }
+    
+    // Mark as used
+    redemption.status = 'used';
+    redemption.usedAt = new Date().toISOString();
+    redemption.usageNotes = notes;
+    
+    await kv.set(redemptionKey, redemption);
+    
+    return c.json({ 
+      message: 'Coupon marked as used successfully',
+      redemption 
+    });
+  } catch (error) {
+    console.log(`Use coupon error: ${error}`);
+    return c.json({ error: 'Error using coupon' }, 500);
+  }
+});
+
+// ==================== COLLECTION POINT INVENTORY ROUTES ====================
+
+// Register collection arrival at point (collector/admin)
+app.post("/server/points/:pointId/arrivals", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    
+    if (!user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    const userProfile = await kv.get(`user:${user.id}`);
+    if (!userProfile || (userProfile.type !== 'collector' && userProfile.type !== 'admin')) {
+      return c.json({ error: 'Forbidden: Only collectors and admins can register arrivals' }, 403);
+    }
+    
+    const pointId = c.req.param('pointId');
+    const { collectionId, tireCount, tireType, weightKg, notes } = await c.req.json();
+    
+    if (!collectionId) {
+      return c.json({ error: 'collectionId is required' }, 400);
+    }
+    
+    // Verify collection exists
+    const collectionData = await findCollectionKeyById(collectionId);
+    if (!collectionData) {
+      return c.json({ error: 'Collection not found' }, 404);
+    }
+    
+    const { key: collectionKey, value: collection } = collectionData;
+    
+    // Verify point exists
+    const point = await kv.get(`point:${pointId}`);
+    if (!point) {
+      return c.json({ error: 'Collection point not found' }, 404);
+    }
+    
+    // Create inventory record
+    const inventoryId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const inventory = {
+      id: inventoryId,
+      pointId,
+      collectionId,
+      arrivedAt: now,
+      tireCount: tireCount || collection.tireCount || 0,
+      tireType: tireType || collection.tireType || 'unknown',
+      weightKg: weightKg || null,
+      notes: notes || null,
+      recordedBy: user.id,
+    };
+    
+    await kv.set(`inventory:${pointId}:${inventoryId}`, inventory);
+    
+    // Update collection record
+    collection.destinationPointId = pointId;
+    collection.arrivedAtPoint = now;
+    if (collection.status === 'in_transit' || collection.status === 'pending') {
+      collection.status = 'arrived';
+    }
+    await kv.set(collectionKey, collection);
+    
+    // Update point's current load
+    point.currentLoad = Number(point.currentLoad || 0) + Number(inventory.tireCount);
+    await kv.set(`point:${pointId}`, point);
+    
+    return c.json({
+      message: 'Collection arrival registered successfully',
+      inventory,
+      point: withPointStatus(point),
+    }, 201);
+  } catch (error) {
+    console.log(`Register arrival error: ${error}`);
+    return c.json({ error: 'Error registering arrival' }, 500);
+  }
+});
+
+// Get inventory for a collection point
+app.get("/server/points/:pointId/inventory", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    
+    if (!user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    const userProfile = await kv.get(`user:${user.id}`);
+    if (!userProfile || (userProfile.type !== 'collector' && userProfile.type !== 'admin')) {
+      return c.json({ error: 'Forbidden: Only collectors and admins can view inventory' }, 403);
+    }
+    
+    const pointId = c.req.param('pointId');
+    
+    // Verify point exists
+    const point = await kv.get(`point:${pointId}`);
+    if (!point) {
+      return c.json({ error: 'Collection point not found' }, 404);
+    }
+    
+    // Get all inventory items for this point
+    const inventory = await kv.getByPrefix(`inventory:${pointId}:`);
+    
+    // Calculate summary statistics
+    const totalTires = inventory.reduce((sum: number, item: any) => sum + (Number(item.tireCount) || 0), 0);
+    const totalWeight = inventory.reduce((sum: number, item: any) => sum + (Number(item.weightKg) || 0), 0);
+    const tireTypeBreakdown = inventory.reduce((acc: any, item: any) => {
+      const type = item.tireType || 'unknown';
+      acc[type] = (acc[type] || 0) + (Number(item.tireCount) || 0);
+      return acc;
+    }, {});
+    
+    return c.json({
+      point: withPointStatus(point),
+      inventory: inventory.sort((a: any, b: any) => 
+        new Date(b.arrivedAt).getTime() - new Date(a.arrivedAt).getTime()
+      ),
+      summary: {
+        totalCollections: inventory.length,
+        totalTires,
+        totalWeightKg: totalWeight,
+        tireTypeBreakdown,
+      },
+    });
+  } catch (error) {
+    console.log(`Get inventory error: ${error}`);
+    return c.json({ error: 'Error getting inventory' }, 500);
   }
 });
 

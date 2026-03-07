@@ -482,6 +482,43 @@ export const pointsAPI = {
       throw new Error(result.error || 'Error al inicializar puntos');
     }
   },
+  
+  async registerArrival(pointId: string, data: {
+    collectionId: string;
+    tireCount?: number;
+    tireType?: string;
+    weightKg?: number;
+    notes?: string;
+  }): Promise<any> {
+    const response = await fetch(`${API_BASE_URL}/points/${pointId}/arrivals`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(data),
+    });
+    
+    const result = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(result.error || 'Error al registrar llegada');
+    }
+    
+    return result;
+  },
+  
+  async getInventory(pointId: string): Promise<any> {
+    const response = await fetch(`${API_BASE_URL}/points/${pointId}/inventory`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+    
+    const result = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(result.error || 'Error al obtener inventario');
+    }
+    
+    return result;
+  },
 };
 
 export const adminAPI = {
@@ -989,6 +1026,41 @@ export const rewardsAPI = {
     
     if (!response.ok) {
       throw new Error(result.error || 'Error al canjear recompensa');
+    }
+    
+    return result;
+  },
+  
+  async getRedemptions(): Promise<any[]> {
+    const response = await fetch(`${API_BASE_URL}/rewards/redemptions`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+    
+    const result = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(result.error || 'Error al obtener cupones');
+    }
+    
+    return result;
+  },
+  
+  getCouponUrl(redemptionId: string): string {
+    return `${API_BASE_URL}/coupons/${redemptionId}`;
+  },
+  
+  async useCoupon(redemptionId: string, notes?: string): Promise<any> {
+    const response = await fetch(`${API_BASE_URL}/coupons/${redemptionId}/use`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({ notes }),
+    });
+    
+    const result = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(result.error || 'Error al marcar cupón como usado');
     }
     
     return result;

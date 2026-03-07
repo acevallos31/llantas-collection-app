@@ -362,6 +362,8 @@ create table if not exists public.collections (
   collector_id uuid,
   collector_name text,
   destination_type text,
+  destination_point_id text references public.collection_points(id),
+  arrived_at_point timestamptz,
   created_at timestamptz,
   completed_date timestamptz,
   traceability jsonb,
@@ -424,10 +426,33 @@ create table if not exists public.reward_redemptions (
   user_id uuid references public.user_profiles(id),
   reward_id text references public.rewards_catalog(id),
   points_cost integer not null default 0,
-  status text not null default 'completed',
+  status text not null default 'pending' check (status in ('pending', 'used', 'expired', 'cancelled')),
+  coupon_code text unique,
+  coupon_pdf_url text,
+  expires_at timestamptz,
+  used_at timestamptz,
   created_at timestamptz,
   raw_data jsonb
 );
+
+create index if not exists reward_redemptions_coupon_code_idx on public.reward_redemptions(coupon_code);
+create index if not exists reward_redemptions_status_idx on public.reward_redemptions(status);
+
+create table if not exists public.point_inventory (
+  id uuid primary key default gen_random_uuid(),
+  point_id text not null references public.collection_points(id) on delete cascade,
+  collection_id uuid not null references public.collections(id) on delete cascade,
+  arrived_at timestamptz not null default now(),
+  tire_count integer not null default 0,
+  tire_type text,
+  weight_kg numeric(10,2),
+  notes text,
+  recorded_by uuid references public.user_profiles(id),
+  raw_data jsonb
+);
+
+create index if not exists point_inventory_point_idx on public.point_inventory(point_id, arrived_at desc);
+create index if not exists point_inventory_collection_idx on public.point_inventory(collection_id);
 
 
 create table if not exists public.analytics_campaigns (
@@ -618,7 +643,11 @@ $$;
 alter table if exists public.reward_redemptions add column if not exists user_id uuid;
 alter table if exists public.reward_redemptions add column if not exists reward_id text;
 alter table if exists public.reward_redemptions add column if not exists points_cost integer not null default 0;
-alter table if exists public.reward_redemptions add column if not exists status text not null default 'completed';
+alter table if exists public.reward_redemptions add column if not exists status text not null default 'pending';
+alter table if exists public.reward_redemptions add column if not exists coupon_code text;
+alter table if exists public.reward_redemptions add column if not exists coupon_pdf_url text;
+alter table if exists public.reward_redemptions add column if not exists expires_at timestamptz;
+alter table if exists public.reward_redemptions add column if not exists used_at timestamptz;
 alter table if exists public.reward_redemptions add column if not exists created_at timestamptz;
 alter table if exists public.reward_redemptions add column if not exists raw_data jsonb;
 
@@ -637,6 +666,8 @@ alter table if exists public.collections add column if not exists photo_url text
 alter table if exists public.collections add column if not exists collector_id uuid;
 alter table if exists public.collections add column if not exists collector_name text;
 alter table if exists public.collections add column if not exists destination_type text;
+alter table if exists public.collections add column if not exists destination_point_id text;
+alter table if exists public.collections add column if not exists arrived_at_point timestamptz;
 alter table if exists public.collections add column if not exists created_at timestamptz;
 alter table if exists public.collections add column if not exists completed_date timestamptz;
 alter table if exists public.collections add column if not exists traceability jsonb;
@@ -864,6 +895,8 @@ insert into public.collections (
   collector_id,
   collector_name,
   destination_type,
+  destination_point_id,
+  arrived_at_point,
   created_at,
   completed_date,
   traceability,
@@ -882,6 +915,8 @@ select
   nullif(value->>'collectorId', '')::uuid,
   value->>'collectorName',
   value->>'destinationType',
+  nullif(value->>'destinationPointId', ''),
+  nullif(value->>'arrivedAtPoint', '')::timestamptz,
   nullif(value->>'createdAt', '')::timestamptz,
   nullif(value->>'completedDate', '')::timestamptz,
   value->'traceability',
@@ -903,6 +938,8 @@ set
   collector_id = excluded.collector_id,
   collector_name = excluded.collector_name,
   destination_type = excluded.destination_type,
+  destination_point_id = excluded.destination_point_id,
+  arrived_at_point = excluded.arrived_at_point,
   created_at = excluded.created_at,
   completed_date = excluded.completed_date,
   traceability = excluded.traceability,
@@ -1046,6 +1083,10 @@ insert into public.reward_redemptions (
   reward_id,
   points_cost,
   status,
+  coupon_code,
+  coupon_pdf_url,
+  expires_at,
+  used_at,
   created_at,
   raw_data
 )
@@ -1054,7 +1095,11 @@ select
   split_part(key, ':', 2)::uuid,
   value->>'rewardId',
   coalesce(nullif(value->>'pointsCost', '')::int, 0),
-  coalesce(value->>'status', 'completed'),
+  coalesce(value->>'status', 'pending'),
+  value->>'couponCode',
+  value->>'couponPdfUrl',
+  nullif(value->>'expiresAt', '')::timestamptz,
+  nullif(value->>'usedAt', '')::timestamptz,
   nullif(value->>'createdAt', '')::timestamptz,
   value
 from public.kv_store_b7bf90da
@@ -1066,6 +1111,10 @@ set
   reward_id = excluded.reward_id,
   points_cost = excluded.points_cost,
   status = excluded.status,
+  coupon_code = excluded.coupon_code,
+  coupon_pdf_url = excluded.coupon_pdf_url,
+  expires_at = excluded.expires_at,
+  used_at = excluded.used_at,
   created_at = excluded.created_at,
   raw_data = excluded.raw_data;
 

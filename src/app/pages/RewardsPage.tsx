@@ -24,8 +24,10 @@ export default function RewardsPage() {
   const { user, refreshUser } = useAuth();
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [rewards, setRewards] = useState<Reward[]>([]);
+  const [redemptions, setRedemptions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [redeeming, setRedeeming] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState('rewards');
 
   const levelMilestones = [
     { name: 'Eco Novato', minPoints: 0 },
@@ -45,6 +47,7 @@ export default function RewardsPage() {
 
   useEffect(() => {
     loadRewards();
+    loadRedemptions();
   }, []);
 
   const loadRewards = async () => {
@@ -58,6 +61,16 @@ export default function RewardsPage() {
       setRewards([]);
     } finally {
       setLoading(false);
+    }
+  };
+  
+  const loadRedemptions = async () => {
+    try {
+      const data = await rewardsAPI.getRedemptions();
+      setRedemptions(data || []);
+    } catch (error) {
+      console.error('Error loading redemptions:', error);
+      setRedemptions([]);
     }
   };
 
@@ -74,20 +87,28 @@ export default function RewardsPage() {
       const result = await rewardsAPI.redeem(rewardId);
       
       toast.success(`¡Recompensa canjeada!`, {
-        description: `Has canjeado "${rewardTitle}". Puntos restantes: ${result.newPointsBalance}`
+        description: `Has canjeado "${rewardTitle}". Tu cupón está listo.`
       });
       
       // Refresh user data to update points
       await refreshUser();
       
-      // Reload rewards to update stock
-      await loadRewards();
+      // Reload redemptions to show new coupon
+      await loadRedemptions();
+      
+      // Switch to coupons tab
+      setActiveTab('coupons');
     } catch (error: any) {
       console.error('Error redeeming reward:', error);
       toast.error(error.message || 'Error al canjear recompensa');
     } finally {
       setRedeeming(null);
     }
+  };
+  
+  const handleViewCoupon = (redemptionId: string) => {
+    const couponUrl = rewardsAPI.getCouponUrl(redemptionId);
+    window.open(couponUrl, '_blank');
   };
 
   const filteredRewards = selectedCategory === 'all' 
@@ -150,133 +171,141 @@ export default function RewardsPage() {
       </div>
 
       <div className="px-4 -mt-6">
-        {/* Category Filter */}
-        <div className="mb-6 overflow-x-auto">
-          <div className="flex gap-2 pb-2">
-            {categories.map((category) => {
-              const Icon = category.icon;
-              return (
-                <Button
-                  key={category.id}
-                  variant={selectedCategory === category.id ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setSelectedCategory(category.id)}
-                  className={selectedCategory === category.id ? 'bg-green-600' : ''}
-                >
-                  <Icon className="w-4 h-4 mr-1" />
-                  {category.label}
-                </Button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Loading State */}
-        {loading ? (
-          <div className="flex justify-center items-center py-12">
-            <Loader2 className="w-8 h-8 animate-spin text-green-600" />
-          </div>
-        ) : (
-          <>
-            {/* Rewards Grid */}
-            <div className="space-y-4">
-              {filteredRewards.map((reward) => {
-                const Icon = getCategoryIcon(reward.category);
-                const canAfford = (user?.points || 0) >= reward.pointsCost;
-                const isAvailable = reward.available;
-
-                return (
-                  <Card 
-                    key={reward.id} 
-                    className={`p-4 hover:shadow-lg transition-shadow ${
-                      !canAfford || !isAvailable ? 'opacity-60' : 'cursor-pointer'
-                    }`}
-                  >
-                    <div className="flex gap-4">
-                      {/* Icon */}
-                      <div className={`w-16 h-16 rounded-xl flex items-center justify-center flex-shrink-0 ${
-                        canAfford && isAvailable ? 'bg-green-100' : 'bg-gray-100'
-                      }`}>
-                        {canAfford && isAvailable ? (
-                          <Icon className="w-8 h-8 text-green-600" />
-                        ) : (
-                          <Lock className="w-8 h-8 text-gray-400" />
-                        )}
-                      </div>
-
-                      {/* Content */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <h3 className="font-semibold">{reward.title}</h3>
-                          {!isAvailable && (
-                            <Badge variant="secondary" className="text-xs">
-                              Agotado
-                            </Badge>
-                          )}
-                        </div>
-
-                        <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-                          {reward.description}
-                        </p>
-
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Badge variant="outline" className="text-xs">
-                              {reward.category}
-                            </Badge>
-                            <div className={`font-bold ${
-                              canAfford ? 'text-green-600' : 'text-gray-500'
-                            }`}>
-                              {reward.pointsCost} pts
-                            </div>
-                          </div>
-
-                          {canAfford && isAvailable ? (
-                            <Button 
-                              size="sm" 
-                              className="bg-green-600 hover:bg-green-700"
-                              onClick={() => handleRedeem(reward.id, reward.title, reward.pointsCost)}
-                              disabled={redeeming === reward.id}
-                            >
-                              {redeeming === reward.id ? (
-                                <>
-                                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                                  Canjeando...
-                                </>
-                              ) : (
-                                'Canjear'
-                              )}
-                            </Button>
-                          ) : (
-                            <Button size="sm" variant="outline" disabled>
-                              {!isAvailable ? 'Agotado' : `Faltan ${reward.pointsCost - (user?.points || 0)} pts`}
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </Card>
-                );
-              })}
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mb-4">
+          <TabsList className="w-full grid grid-cols-2 bg-white">
+            <TabsTrigger value="rewards">Recompensas</TabsTrigger>
+            <TabsTrigger value="coupons">Mis Cupones</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="rewards" className="mt-6">
+            {/* Category Filter */}
+            <div className="mb-6 overflow-x-auto">
+              <div className="flex gap-2 pb-2">
+                {categories.map((category) => {
+                  const Icon = category.icon;
+                  return (
+                    <Button
+                      key={category.id}
+                      variant={selectedCategory === category.id ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setSelectedCategory(category.id)}
+                      className={selectedCategory === category.id ? 'bg-green-600' : ''}
+                    >
+                      <Icon className="w-4 h-4 mr-1" />
+                      {category.label}
+                    </Button>
+                  );
+                })}
+              </div>
             </div>
 
-            {/* How to earn more */}
-            <Card className="p-6 mt-6 bg-gradient-to-br from-green-50 to-emerald-50">
-              <h3 className="font-bold mb-4 flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-green-600" />
-                ¿Cómo ganar más puntos?
-              </h3>
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center text-white font-bold">
-                    1
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium">Registra recolecciones</p>
-                    <p className="text-xs text-gray-600">30 puntos por llanta</p>
-                  </div>
+            {/* Loading State */}
+            {loading ? (
+              <div className="flex justify-center items-center py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-green-600" />
+              </div>
+            ) : (
+              <>
+                {/* Rewards Grid */}
+                <div className="space-y-4">
+                  {filteredRewards.map((reward) => {
+                    const Icon = getCategoryIcon(reward.category);
+                    const canAfford = (user?.points || 0) >= reward.pointsCost;
+                    const isAvailable = reward.available;
+
+                    return (
+                      <Card 
+                        key={reward.id} 
+                        className={`p-4 hover:shadow-lg transition-shadow ${
+                          !canAfford || !isAvailable ? 'opacity-60' : 'cursor-pointer'
+                        }`}
+                      >
+                        <div className="flex gap-4">
+                          {/* Icon */}
+                          <div className={`w-16 h-16 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                            canAfford && isAvailable ? 'bg-green-100' : 'bg-gray-100'
+                          }`}>
+                            {canAfford && isAvailable ? (
+                              <Icon className="w-8 h-8 text-green-600" />
+                            ) : (
+                              <Lock className="w-8 h-8 text-gray-400" />
+                            )}
+                          </div>
+
+                          {/* Content */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <h3 className="font-semibold">{reward.title}</h3>
+                              {!isAvailable && (
+                                <Badge variant="secondary" className="text-xs">
+                                  Agotado
+                                </Badge>
+                              )}
+                            </div>
+
+                            <p className="text-sm text-gray-600 mb-3 line-clamp-2">
+                              {reward.description}
+                            </p>
+
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="text-xs">
+                                  {reward.category}
+                                </Badge>
+                                <div className={`font-bold ${
+                                  canAfford ? 'text-green-600' : 'text-gray-500'
+                                }`}>
+                                  {reward.pointsCost} pts
+                                </div>
+                              </div>
+
+                              {canAfford && isAvailable ? (
+                                <Button 
+                                  size="sm" 
+                                  className="bg-green-600 hover:bg-green-700"
+                                  onClick={() => handleRedeem(reward.id, reward.title, reward.pointsCost)}
+                                  disabled={redeeming === reward.id}
+                                >
+                                  {redeeming === reward.id ? (
+                                    <>
+                                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                                      Canjeando...
+                                    </>
+                                  ) : (
+                                    'Canjear'
+                                  )}
+                                </Button>
+                              ) : (
+                                <Button size="sm" variant="outline" disabled>
+                                  {!isAvailable ? 'Agotado' : `Faltan ${reward.pointsCost - (user?.points || 0)} pts`}
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </Card>
+                    );
+                  })}
                 </div>
-                <div className="flex items-center gap-3">
+
+                {/* How to earn more */}
+                <Card className="p-6 mt-6 bg-gradient-to-br from-green-50 to-emerald-50">
+                  <h3 className="font-bold mb-4 flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-green-600" />
+                    ¿Cómo ganar más puntos?
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center text-white font-bold">
+                        1
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">Registra recolecciones</p>
+                        <p className="text-xs text-gray-600">30 puntos por llanta</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
                   <div className="w-8 h-8 bg-green-600 rounded-full flex items-center justify-center text-white font-bold">
                     2
                   </div>
@@ -354,6 +383,122 @@ export default function RewardsPage() {
             </Card>
           </>
         )}
+          </TabsContent>
+          
+          <TabsContent value="coupons" className="mt-6">
+            <div className="space-y-4">
+              {redemptions.length === 0 ? (
+                <Card className="p-8 text-center">
+                  <Gift className="w-16 h-16 mx-auto mb-4 text-gray-300" />
+                  <h3 className="font-semibold text-gray-700 mb-2">No tienes cupones todavía</h3>
+                  <p className="text-sm text-gray-500 mb-4">
+                    Canjea tus puntos por recompensas para obtener cupones
+                  </p>
+                  <Button 
+                    onClick={() => setActiveTab('rewards')}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    Ver Recompensas
+                  </Button>
+                </Card>
+              ) : (
+                redemptions
+                  .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                  .map((redemption) => {
+                    const isExpired = redemption.isExpired;
+                    const isUsed = redemption.status === 'used';
+                    const isPending = redemption.status === 'pending';
+                    
+                    let statusBadge;
+                    if (isUsed) {
+                      statusBadge = <Badge className="bg-gray-500">Usado</Badge>;
+                    } else if (isExpired) {
+                      statusBadge = <Badge variant="destructive">Expirado</Badge>;
+                    } else {
+                      statusBadge = <Badge className="bg-green-600">Activo</Badge>;
+                    }
+                    
+                    return (
+                      <Card 
+                        key={redemption.id} 
+                        className={`p-4 ${isExpired || isUsed ? 'opacity-60' : ''}`}
+                      >
+                        <div className="flex gap-4">
+                          <div className={`w-16 h-16 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                            isExpired || isUsed ? 'bg-gray-100' : 'bg-green-100'
+                          }`}>
+                            <Gift className={`w-8 h-8 ${
+                              isExpired || isUsed ? 'text-gray-400' : 'text-green-600'
+                            }`} />
+                          </div>
+                          
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <h3 className="font-semibold">{redemption.rewardTitle}</h3>
+                              {statusBadge}
+                            </div>
+                            
+                            <div className="space-y-1 mb-3">
+                              <p className="text-sm text-gray-600">
+                                Código: <span className="font-mono font-bold text-green-600">{redemption.couponCode}</span>
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                Canjeado: {new Date(redemption.createdAt).toLocaleDateString('es-HN', {
+                                  day: 'numeric',
+                                  month: 'short',
+                                  year: 'numeric'
+                                })}
+                              </p>
+                              {redemption.expiresAt && (
+                                <p className="text-xs text-gray-500">
+                                  Válido hasta: {new Date(redemption.expiresAt).toLocaleDateString('es-HN', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                    year: 'numeric'
+                                  })}
+                                </p>
+                              )}
+                              {isUsed && redemption.usedAt && (
+                                <p className="text-xs text-gray-500">
+                                  Usado: {new Date(redemption.usedAt).toLocaleDateString('es-HN', {
+                                    day: 'numeric',
+                                    month: 'short',
+                                    year: 'numeric'
+                                  })}
+                                </p>
+                              )}
+                            </div>
+                            
+                            {isPending && !isExpired && (
+                              <Button 
+                                size="sm" 
+                                className="bg-green-600 hover:bg-green-700 w-full"
+                                onClick={() => handleViewCoupon(redemption.id)}
+                              >
+                                Ver Cupón
+                              </Button>
+                            )}
+                          </div>
+                        </div>
+                      </Card>
+                    );
+                  })
+              )}
+              
+              {redemptions.length > 0 && (
+                <Card className="p-4 bg-blue-50 border-blue-200">
+                  <h3 className="font-semibold mb-2 text-sm">💡 Cómo usar tus cupones</h3>
+                  <ul className="text-xs text-gray-600 space-y-1">
+                    <li>1. Haz clic en "Ver Cupón" para abrir el cupón completo</li>
+                    <li>2. Presenta el cupón (impreso o en pantalla) en el comercio afiliado</li>
+                    <li>3. El comercio verificará el código y aplicará tu beneficio</li>
+                    <li>4. Los cupones tienen validez de 30 días desde la fecha de canje</li>
+                  </ul>
+                </Card>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
