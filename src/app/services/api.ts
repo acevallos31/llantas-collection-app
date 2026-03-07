@@ -797,19 +797,28 @@ export const adminAPI = {
 
     const result = await parseResponseBody(response);
     if (!response.ok) {
-      throw new Error(resolveErrorMessage(result, 'Error al cerrar todas las sesiones activas'));
+      // Backward-compatible fallback for environments with older route behavior.
+      const fallbackResponse = await fetch(`${API_BASE_URL}/admin/analytics/reset-active-sessions`, {
+        method: 'POST',
+        headers: getAuthHeaders(true),
+      });
+      const fallbackResult = await parseResponseBody(fallbackResponse);
+      if (!fallbackResponse.ok) {
+        throw new Error(resolveErrorMessage(fallbackResult || result, 'Error al cerrar todas las sesiones activas'));
+      }
+      return fallbackResult;
     }
     return result;
   },
 };
 
 export const analyticsAPI = {
-  async trackVisit(path: string) {
+  async trackVisit(path: string, sessionId?: string) {
     try {
       await fetch(`${API_BASE_URL}/analytics/visit`, {
         method: 'POST',
         headers: getAuthHeaders(false),
-        body: JSON.stringify({ path, userType: getAnalyticsUserType() }),
+        body: JSON.stringify({ path, sessionId, userType: getAnalyticsUserType() }),
       });
     } catch {
       // Silently ignore analytics failures in prototype mode.
@@ -854,11 +863,20 @@ export const analyticsAPI = {
 
   async endSession(sessionId: string, durationMs: number) {
     try {
+      const payload = JSON.stringify({ sessionId, durationMs, userType: getAnalyticsUserType() });
       await fetch(`${API_BASE_URL}/analytics/session/end`, {
         method: 'POST',
         headers: getAuthHeaders(false),
-        body: JSON.stringify({ sessionId, durationMs, userType: getAnalyticsUserType() }),
+        body: payload,
+        keepalive: true,
       });
+
+      if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+        const headers = getAuthHeaders(false) as Record<string, string>;
+        const beaconBody = JSON.stringify({ sessionId, durationMs, userType: getAnalyticsUserType() });
+        const blob = new Blob([beaconBody], { type: headers['Content-Type'] || 'application/json' });
+        navigator.sendBeacon(`${API_BASE_URL}/analytics/session/end`, blob);
+      }
     } catch {
       // Silently ignore analytics failures in prototype mode.
     }

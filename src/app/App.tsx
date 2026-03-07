@@ -18,11 +18,10 @@ export default function App() {
       sessionStorage.setItem(SESSION_ID_KEY, sessionIdRef.current);
     }
 
-    void analyticsAPI.trackVisit(window.location.pathname);
-
     const wasStarted = sessionStorage.getItem(SESSION_STARTED_KEY) === '1';
     if (!wasStarted) {
       sessionStorage.setItem(SESSION_STARTED_KEY, '1');
+      void analyticsAPI.trackVisit(window.location.pathname, sessionIdRef.current);
       void analyticsAPI.startSession(sessionIdRef.current, new Date().toISOString());
     } else {
       void analyticsAPI.pingSession(sessionIdRef.current);
@@ -41,8 +40,6 @@ export default function App() {
       if (durationMs > 0) {
         void analyticsAPI.endSession(sessionIdRef.current, durationMs);
       }
-      sessionStorage.removeItem(SESSION_STARTED_KEY);
-      sessionStorage.removeItem(SESSION_ID_KEY);
     };
 
     window.addEventListener('beforeunload', reportSession);
@@ -58,7 +55,6 @@ export default function App() {
       window.removeEventListener('beforeunload', reportSession);
       window.removeEventListener('pagehide', reportSession);
       window.clearInterval(pingInterval);
-      reportSession();
     };
   }, [existingSessionId]);
 
