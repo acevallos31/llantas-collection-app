@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext.tsx';
-import { collectionsAPI } from '../services/api.js';
+import { collectorAPI, collectionsAPI } from '../services/api.js';
 import type { Collection } from '../mockData.ts';
 import { Card } from '../components/ui/card.tsx';
 import { Button } from '../components/ui/button.tsx';
@@ -16,9 +16,34 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../components/ui/alert-dialog.tsx';
-import { Loader2, Truck, MapPin, CheckCircle2, PlayCircle, XCircle } from 'lucide-react';
+import { Loader2, Truck, MapPin, CheckCircle2, PlayCircle, XCircle, Route } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL, getAuthHeaders, ANALYTICS_SESSION_ID_KEY } from '../services/api.js';
+
+type RouteSuggestion = {
+  collectionId: string;
+  collectionStatus: string;
+  pickupAddress: string;
+  dropoffPoint: {
+    id: string;
+    name: string;
+    address: string;
+  };
+  tireCount: number;
+  tireType: string;
+  tireCondition: string;
+  distance: {
+    collectorToPickupKm: number;
+    pickupToPointKm: number;
+    totalKm: number;
+  };
+  estimatedCompensation: {
+    currency: string;
+    generatorPerTire: number;
+    generatorTotal: number;
+    collectorFreight: number;
+  };
+};
 
 export default function CollectorDashboardPage() {
   const navigate = useNavigate();
@@ -31,6 +56,8 @@ export default function CollectorDashboardPage() {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [webRTCError, setWebRTCError] = useState<string | null>(null);
   const [isScreenShareActive, setIsScreenShareActive] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [routeSuggestions, setRouteSuggestions] = useState<RouteSuggestion[]>([]);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const requestPollRef = useRef<number | null>(null);
   const answerPollRef = useRef<number | null>(null);
@@ -40,7 +67,45 @@ export default function CollectorDashboardPage() {
   useEffect(() => {
     if (!isCollector) return;
     void loadCollections();
+    void loadRouteSuggestions();
   }, [isCollector]);
+
+  const loadRouteSuggestions = async () => {
+    try {
+      setRouteLoading(true);
+
+      const getLocation = () => new Promise<{ lat: number; lng: number } | null>((resolve) => {
+        if (!navigator.geolocation) {
+          resolve(null);
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            resolve({
+              lat: position.coords.latitude,
+              lng: position.coords.longitude,
+            });
+          },
+          () => resolve(null),
+          { enableHighAccuracy: true, timeout: 4500, maximumAge: 1000 * 60 * 3 },
+        );
+      });
+
+      const currentPosition = await getLocation();
+      const data = await collectorAPI.getRouteSuggestions({
+        lat: currentPosition?.lat,
+        lng: currentPosition?.lng,
+        maxStops: 5,
+      });
+
+      setRouteSuggestions(Array.isArray(data?.suggestions) ? data.suggestions : []);
+    } catch (error: any) {
+      toast.error(error.message || 'No se pudieron generar rutas sugeridas');
+      setRouteSuggestions([]);
+    } finally {
+      setRouteLoading(false);
+    }
+  };
 
   // Redirect non-collectors
   useEffect(() => {
@@ -362,6 +427,45 @@ export default function CollectorDashboardPage() {
       </div>
 
       <div className="px-4 pt-4">
+        <Card className="p-4 border-blue-200 bg-blue-50/70 mb-4">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <p className="font-semibold text-blue-900 flex items-center gap-2">
+                <Route className="w-4 h-4" /> Rutas sugeridas para hoy
+              </p>
+              <p className="text-sm text-blue-800">Basadas en tu ubicación, recolecciones activas y centros de acopio.</p>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => void loadRouteSuggestions()} disabled={routeLoading}>
+              {routeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Actualizar'}
+            </Button>
+          </div>
+
+          {routeLoading ? (
+            <div className="py-4 flex items-center justify-center">
+              <Loader2 className="w-5 h-5 animate-spin text-blue-700" />
+            </div>
+          ) : routeSuggestions.length === 0 ? (
+            <p className="text-sm text-blue-900">No hay rutas sugeridas en este momento.</p>
+          ) : (
+            <div className="space-y-2">
+              {routeSuggestions.slice(0, 3).map((item) => (
+                <div key={item.collectionId} className="bg-white border border-blue-200 rounded-lg p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium text-sm">Recolectar {item.tireCount} llantas ({item.tireType})</p>
+                    <Badge variant="outline">{item.distance.totalKm.toFixed(1)} km</Badge>
+                  </div>
+                  <p className="text-xs text-gray-700 mt-1">Pickup: {item.pickupAddress}</p>
+                  <p className="text-xs text-gray-700">Centro sugerido: {item.dropoffPoint.name}</p>
+                  <p className="text-xs text-emerald-700 mt-1">
+                    Pago cliente: {item.estimatedCompensation.generatorTotal.toFixed(2)} {item.estimatedCompensation.currency} ·
+                    Flete recolector: {item.estimatedCompensation.collectorFreight.toFixed(2)} {item.estimatedCompensation.currency}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
         <Card className="p-4 border-orange-200 bg-orange-50/70">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>

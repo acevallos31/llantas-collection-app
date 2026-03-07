@@ -620,6 +620,131 @@ export const adminAPI = {
     return result;
   },
 
+  async getRewards(): Promise<any[]> {
+    const response = await fetch(`${API_BASE_URL}/admin/rewards`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener recompensas del catalogo'));
+    }
+    return result;
+  },
+
+  async createReward(payload: {
+    title: string;
+    description?: string;
+    pointsCost: number;
+    category?: string;
+    sponsor?: string;
+    available?: boolean;
+  }) {
+    const response = await fetch(`${API_BASE_URL}/admin/rewards`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(payload),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al crear recompensa'));
+    }
+    return result;
+  },
+
+  async updateReward(rewardId: string, payload: Record<string, any>) {
+    const response = await fetch(`${API_BASE_URL}/admin/rewards/${rewardId}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(payload),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al actualizar recompensa'));
+    }
+    return result;
+  },
+
+  async deleteReward(rewardId: string) {
+    const response = await fetch(`${API_BASE_URL}/admin/rewards/${rewardId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al eliminar recompensa'));
+    }
+    return result;
+  },
+
+  async assignReward(rewardId: string, payload: { userId: string; expiresInDays?: number }) {
+    const response = await fetch(`${API_BASE_URL}/admin/rewards/${rewardId}/assign`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(payload),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al asignar recompensa'));
+    }
+    return result;
+  },
+
+  async getPricing(): Promise<{
+    generatorTariffsByCondition: {
+      excelente: number;
+      buena: number;
+      regular: number;
+      desgastada: number;
+    };
+    collectorFreight: {
+      min: number;
+      max: number;
+    };
+    currency: string;
+  }> {
+    const response = await fetch(`${API_BASE_URL}/admin/pricing`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener tarifas monetarias'));
+    }
+    return result;
+  },
+
+  async updatePricing(payload: {
+    generatorTariffsByCondition: {
+      excelente: number;
+      buena: number;
+      regular: number;
+      desgastada: number;
+    };
+    collectorFreight: {
+      min: number;
+      max: number;
+    };
+  }) {
+    const response = await fetch(`${API_BASE_URL}/admin/pricing`, {
+      method: 'PUT',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(payload),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al actualizar tarifas monetarias'));
+    }
+    return result;
+  },
+
   async getSettings(): Promise<any> {
     const response = await fetch(`${API_BASE_URL}/admin/settings`, {
       method: 'GET',
@@ -869,6 +994,27 @@ export const adminAPI = {
     const result = await parseResponseBody(response);
     if (!response.ok) {
       throw new Error(resolveErrorMessage(result, 'Error al obtener actividad de sesion'));
+    }
+    return result;
+  },
+};
+
+export const collectorAPI = {
+  async getRouteSuggestions(params?: { lat?: number; lng?: number; maxStops?: number }) {
+    const query = new URLSearchParams();
+    if (params?.lat !== undefined) query.set('lat', String(params.lat));
+    if (params?.lng !== undefined) query.set('lng', String(params.lng));
+    if (params?.maxStops !== undefined) query.set('maxStops', String(params.maxStops));
+
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    const response = await fetch(`${API_BASE_URL}/collector/routes/suggestions${suffix}`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al generar rutas sugeridas'));
     }
     return result;
   },

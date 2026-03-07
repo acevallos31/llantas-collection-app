@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext.tsx';
-import { pointsAPI } from '../services/api.ts';
+import { collectionsAPI, pointsAPI } from '../services/api.ts';
 import type { CollectionPoint } from '../mockData.ts';
 import { Card } from '../components/ui/card.tsx';
 import { Button } from '../components/ui/button.tsx';
@@ -9,16 +9,49 @@ import { Input } from '../components/ui/input.tsx';
 import { Label } from '../components/ui/label.tsx';
 import { Textarea } from '../components/ui/textarea.tsx';
 import { Badge } from '../components/ui/badge.tsx';
-import { ChevronLeft, Loader2, Plus, Trash2, Save } from 'lucide-react';
+import { ChevronLeft, Loader2, Plus, Trash2, Save, PackageSearch, ClipboardPlus } from 'lucide-react';
 import { toast } from 'sonner';
+
+type ArrivalCandidate = {
+  id: string;
+  tireCount?: number;
+  tireType?: string;
+  status?: string;
+  destinationPointId?: string;
+  arrivedAtPoint?: string;
+};
+
+type PointInventoryResponse = {
+  point: CollectionPoint & { occupancyRate?: number; availableCapacity?: number };
+  inventory: Array<{
+    id: string;
+    collectionId: string;
+    arrivedAt: string;
+    tireCount?: number;
+    tireType?: string;
+    weightKg?: number | null;
+    notes?: string | null;
+  }>;
+  summary: {
+    totalCollections: number;
+    totalTires: number;
+    totalWeightKg: number;
+    tireTypeBreakdown: Record<string, number>;
+  };
+};
 
 export default function AdminPointsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [points, setPoints] = useState<CollectionPoint[]>([]);
+  const [collections, setCollections] = useState<ArrivalCandidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedPointId, setSelectedPointId] = useState<string>('');
+  const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [arrivalSubmitting, setArrivalSubmitting] = useState(false);
+  const [inventoryData, setInventoryData] = useState<PointInventoryResponse | null>(null);
 
   const [form, setForm] = useState({
     name: '',
@@ -30,11 +63,19 @@ export default function AdminPointsPage() {
     phone: '+504 2550-0000',
   });
 
+  const [arrivalForm, setArrivalForm] = useState({
+    collectionId: '',
+    tireCount: '',
+    tireType: '',
+    weightKg: '',
+    notes: '',
+  });
+
   const isAdmin = user?.type === 'admin';
 
   useEffect(() => {
     if (!isAdmin) return;
-    void loadPoints();
+    void Promise.all([loadPoints(), loadCollections()]);
   }, [isAdmin]);
 
   const loadPoints = async () => {
@@ -49,6 +90,72 @@ export default function AdminPointsPage() {
       setLoading(false);
     }
   };
+
+  const loadCollections = async () => {
+    try {
+      const data = await collectionsAPI.getAll();
+      setCollections((data || []) as ArrivalCandidate[]);
+    } catch {
+      setCollections([]);
+    }
+  };
+
+  const loadInventory = async (pointId: string) => {
+    try {
+      setInventoryLoading(true);
+      const data = await pointsAPI.getInventory(pointId);
+      setInventoryData(data as PointInventoryResponse);
+      setSelectedPointId(pointId);
+    } catch (error: any) {
+      toast.error(error.message || 'No se pudo cargar el inventario del centro');
+      setInventoryData(null);
+    } finally {
+      setInventoryLoading(false);
+    }
+  };
+
+  const handleRegisterArrival = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!selectedPointId || !arrivalForm.collectionId) {
+      toast.error('Selecciona un centro y una recolección');
+      return;
+    }
+
+    try {
+      setArrivalSubmitting(true);
+      await pointsAPI.registerArrival(selectedPointId, {
+        collectionId: arrivalForm.collectionId,
+        tireCount: arrivalForm.tireCount ? Number(arrivalForm.tireCount) : undefined,
+        tireType: arrivalForm.tireType || undefined,
+        weightKg: arrivalForm.weightKg ? Number(arrivalForm.weightKg) : undefined,
+        notes: arrivalForm.notes || undefined,
+      });
+
+      toast.success('Llegada registrada en inventario');
+      setArrivalForm({
+        collectionId: '',
+        tireCount: '',
+        tireType: '',
+        weightKg: '',
+        notes: '',
+      });
+
+      await Promise.all([loadInventory(selectedPointId), loadPoints(), loadCollections()]);
+    } catch (error: any) {
+      toast.error(error.message || 'No se pudo registrar la llegada');
+    } finally {
+      setArrivalSubmitting(false);
+    }
+  };
+
+  const pendingCollections = collections.filter((collection) => {
+    const status = String(collection.status || '').toLowerCase();
+    return !collection.destinationPointId
+      && !collection.arrivedAtPoint
+      && status !== 'completed'
+      && status !== 'cancelled';
+  });
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -201,17 +308,144 @@ export default function AdminPointsPage() {
                     </div>
                   </div>
 
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => handleDelete(point.id)}
-                    disabled={deletingId === point.id}
-                  >
-                    {deletingId === point.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void loadInventory(point.id)}
+                    >
+                      <PackageSearch className="w-4 h-4 mr-1" /> Inventario
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleDelete(point.id)}
+                      disabled={deletingId === point.id}
+                    >
+                      {deletingId === point.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
+          )}
+        </Card>
+
+        <Card className="p-4">
+          <h2 className="font-semibold mb-3 flex items-center gap-2">
+            <PackageSearch className="w-4 h-4" /> Inventario por centro
+          </h2>
+
+          {!selectedPointId ? (
+            <p className="text-sm text-gray-600">Selecciona "Inventario" en un centro para administrar sus entradas.</p>
+          ) : inventoryLoading ? (
+            <div className="py-8 flex items-center justify-center">
+              <Loader2 className="w-6 h-6 animate-spin text-green-600" />
+            </div>
+          ) : inventoryData ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-2">
+                <Badge variant="outline">Centro: {inventoryData.point.name}</Badge>
+                <Badge variant="outline">Recolecciones: {inventoryData.summary.totalCollections}</Badge>
+                <Badge variant="outline">Llantas: {inventoryData.summary.totalTires}</Badge>
+                <Badge variant="outline">Peso: {Number(inventoryData.summary.totalWeightKg || 0).toFixed(2)} kg</Badge>
+              </div>
+
+              <form className="space-y-3 border rounded-lg p-3" onSubmit={handleRegisterArrival}>
+                <h3 className="font-medium flex items-center gap-2">
+                  <ClipboardPlus className="w-4 h-4" /> Registrar llegada de recolección
+                </h3>
+
+                <div className="space-y-1">
+                  <Label>Recolección</Label>
+                  <select
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    value={arrivalForm.collectionId}
+                    onChange={(e) => setArrivalForm({ ...arrivalForm, collectionId: e.target.value })}
+                  >
+                    <option value="">Seleccionar recolección pendiente</option>
+                    {pendingCollections.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.id.slice(0, 8)} - {item.tireCount || 0} llantas - {item.tireType || 'N/A'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label>Cantidad de llantas</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={arrivalForm.tireCount}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => setArrivalForm({ ...arrivalForm, tireCount: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Tipo</Label>
+                    <Input
+                      value={arrivalForm.tireType}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => setArrivalForm({ ...arrivalForm, tireType: e.target.value })}
+                      placeholder="Automovil, Camion..."
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label>Peso (kg)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={arrivalForm.weightKg}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => setArrivalForm({ ...arrivalForm, weightKg: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Nota</Label>
+                    <Input
+                      value={arrivalForm.notes}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => setArrivalForm({ ...arrivalForm, notes: e.target.value })}
+                      placeholder="Observaciones"
+                    />
+                  </div>
+                </div>
+
+                <Button type="submit" className="w-full" disabled={arrivalSubmitting || pendingCollections.length === 0}>
+                  {arrivalSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardPlus className="w-4 h-4 mr-2" />}
+                  Registrar llegada
+                </Button>
+
+                {pendingCollections.length === 0 && (
+                  <p className="text-xs text-gray-500">No hay recolecciones pendientes disponibles para registrar.</p>
+                )}
+              </form>
+
+              <div className="space-y-2">
+                <h3 className="font-medium">Entradas registradas</h3>
+                {inventoryData.inventory.length === 0 ? (
+                  <p className="text-sm text-gray-600">No hay entradas en el inventario de este centro.</p>
+                ) : (
+                  inventoryData.inventory.map((entry) => (
+                    <div key={entry.id} className="border rounded-lg p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-medium text-sm">Recoleccion {entry.collectionId.slice(0, 8)}</p>
+                        <Badge variant="outline">{new Date(entry.arrivedAt).toLocaleDateString('es-HN')}</Badge>
+                      </div>
+                      <p className="text-sm text-gray-700 mt-1">
+                        {entry.tireCount || 0} llantas · {entry.tireType || 'N/A'}
+                        {entry.weightKg ? ` · ${entry.weightKg} kg` : ''}
+                      </p>
+                      {entry.notes ? <p className="text-xs text-gray-500 mt-1">{entry.notes}</p> : null}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-600">No se pudo cargar el inventario.</p>
           )}
         </Card>
       </div>

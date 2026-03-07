@@ -64,6 +64,73 @@ const findCollectionKeyById = async (collectionId: string) => {
   return null;
 };
 
+const PRICING_DEFAULTS = {
+  generatorTariffsByCondition: {
+    excelente: 300,
+    buena: 180,
+    regular: 90,
+    desgastada: 20,
+  },
+  collectorFreight: {
+    min: 15,
+    max: 25,
+  },
+  currency: 'HNL',
+};
+
+const getPricingSettings = async () => {
+  const stored = await kv.get('app:pricing');
+  return {
+    ...PRICING_DEFAULTS,
+    ...(stored || {}),
+    generatorTariffsByCondition: {
+      ...PRICING_DEFAULTS.generatorTariffsByCondition,
+      ...(stored?.generatorTariffsByCondition || {}),
+    },
+    collectorFreight: {
+      ...PRICING_DEFAULTS.collectorFreight,
+      ...(stored?.collectorFreight || {}),
+    },
+  };
+};
+
+const normalizeTireCondition = (value?: string) => {
+  const normalized = String(value || 'regular').toLowerCase().trim();
+  if (normalized === 'excelente') return 'excelente';
+  if (normalized === 'buena') return 'buena';
+  if (normalized === 'desgastada') return 'desgastada';
+  return 'regular';
+};
+
+const toRad = (value: number) => (value * Math.PI) / 180;
+
+const haversineKm = (
+  origin: { lat: number; lng: number },
+  target: { lat: number; lng: number },
+) => {
+  const earthRadiusKm = 6371;
+  const dLat = toRad(target.lat - origin.lat);
+  const dLng = toRad(target.lng - origin.lng);
+  const lat1 = toRad(origin.lat);
+  const lat2 = toRad(target.lat);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLng / 2) * Math.sin(dLng / 2) * Math.cos(lat1) * Math.cos(lat2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
+};
+
+const estimateCollectorFreight = (totalDistanceKm: number, minValue: number, maxValue: number) => {
+  const minSafe = Math.max(0, Number(minValue || 0));
+  const maxSafe = Math.max(minSafe, Number(maxValue || minSafe));
+  if (maxSafe === minSafe) return minSafe;
+
+  const normalized = Math.min(Math.max(totalDistanceKm / 30, 0), 1);
+  return Number((minSafe + (maxSafe - minSafe) * normalized).toFixed(2));
+};
+
 const ensureAdminUser = async () => {
   try {
     const supabase = getSupabaseClient(true);
@@ -2423,6 +2490,61 @@ app.put('/server/admin/settings', async (c) => {
   }
 });
 
+app.get('/server/admin/pricing', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const pricing = await getPricingSettings();
+    return c.json(pricing);
+  } catch (error) {
+    console.log(`Admin pricing get error: ${error}`);
+    return c.json({ error: 'Error getting pricing settings' }, 500);
+  }
+});
+
+app.put('/server/admin/pricing', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const payload = await c.req.json();
+    const current = await getPricingSettings();
+
+    const rawTariffs = payload?.generatorTariffsByCondition || {};
+    const tariffExcelente = Math.min(300, Math.max(20, Number(rawTariffs.excelente ?? current.generatorTariffsByCondition.excelente)));
+    const tariffBuena = Math.min(300, Math.max(20, Number(rawTariffs.buena ?? current.generatorTariffsByCondition.buena)));
+    const tariffRegular = Math.min(300, Math.max(20, Number(rawTariffs.regular ?? current.generatorTariffsByCondition.regular)));
+    const tariffDesgastada = Math.min(300, Math.max(20, Number(rawTariffs.desgastada ?? current.generatorTariffsByCondition.desgastada)));
+
+    const freightMin = Math.min(25, Math.max(15, Number(payload?.collectorFreight?.min ?? current.collectorFreight.min)));
+    const freightMax = Math.min(25, Math.max(freightMin, Number(payload?.collectorFreight?.max ?? current.collectorFreight.max)));
+
+    const merged = {
+      ...current,
+      generatorTariffsByCondition: {
+        excelente: Number(tariffExcelente.toFixed(2)),
+        buena: Number(tariffBuena.toFixed(2)),
+        regular: Number(tariffRegular.toFixed(2)),
+        desgastada: Number(tariffDesgastada.toFixed(2)),
+      },
+      collectorFreight: {
+        min: Number(freightMin.toFixed(2)),
+        max: Number(freightMax.toFixed(2)),
+      },
+      currency: 'HNL',
+      updatedAt: new Date().toISOString(),
+      updatedBy: auth.user.id,
+    };
+
+    await kv.set('app:pricing', merged);
+    return c.json(merged);
+  } catch (error) {
+    console.log(`Admin pricing update error: ${error}`);
+    return c.json({ error: 'Error updating pricing settings' }, 500);
+  }
+});
+
 app.get('/server/admin/reports/overview', async (c) => {
   try {
     const auth = await requireAdmin(c);
@@ -3226,6 +3348,176 @@ const generateCouponHTML = (couponCode: string, redemption: any, reward: any, us
 </html>`;
 };
 
+app.get('/server/admin/rewards', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const rewards = await kv.getByPrefix('reward:');
+    rewards.sort((a: any, b: any) => String(a?.title || '').localeCompare(String(b?.title || '')));
+    return c.json(rewards);
+  } catch (error) {
+    console.log(`Admin rewards get error: ${error}`);
+    return c.json({ error: 'Error getting rewards catalog' }, 500);
+  }
+});
+
+app.post('/server/admin/rewards', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const payload = await c.req.json();
+    const title = String(payload?.title || '').trim();
+    const description = String(payload?.description || '').trim();
+    const category = String(payload?.category || 'General').trim() || 'General';
+    const sponsor = String(payload?.sponsor || '').trim() || null;
+    const pointsCost = Math.max(0, Number(payload?.pointsCost || 0));
+    const available = payload?.available !== false;
+
+    if (!title) {
+      return c.json({ error: 'title is required' }, 400);
+    }
+
+    const rewardId = crypto.randomUUID();
+    const reward = {
+      id: rewardId,
+      title,
+      description,
+      pointsCost,
+      category,
+      sponsor,
+      available,
+      createdAt: new Date().toISOString(),
+      createdBy: auth.user.id,
+    };
+
+    await kv.set(`reward:${rewardId}`, reward);
+    return c.json(reward, 201);
+  } catch (error) {
+    console.log(`Admin rewards create error: ${error}`);
+    return c.json({ error: 'Error creating reward' }, 500);
+  }
+});
+
+app.put('/server/admin/rewards/:rewardId', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const rewardId = c.req.param('rewardId');
+    const current = await kv.get(`reward:${rewardId}`);
+    if (!current) {
+      return c.json({ error: 'Reward not found' }, 404);
+    }
+
+    const payload = await c.req.json();
+    const updated = {
+      ...current,
+      title: payload?.title !== undefined ? String(payload.title || '').trim() : current.title,
+      description: payload?.description !== undefined ? String(payload.description || '').trim() : current.description,
+      category: payload?.category !== undefined ? String(payload.category || '').trim() : current.category,
+      sponsor: payload?.sponsor !== undefined ? (String(payload.sponsor || '').trim() || null) : current.sponsor,
+      pointsCost: payload?.pointsCost !== undefined ? Math.max(0, Number(payload.pointsCost || 0)) : Number(current.pointsCost || 0),
+      available: payload?.available !== undefined ? Boolean(payload.available) : Boolean(current.available),
+      updatedAt: new Date().toISOString(),
+      updatedBy: auth.user.id,
+    };
+
+    if (!String(updated.title || '').trim()) {
+      return c.json({ error: 'title is required' }, 400);
+    }
+
+    await kv.set(`reward:${rewardId}`, updated);
+    return c.json(updated);
+  } catch (error) {
+    console.log(`Admin rewards update error: ${error}`);
+    return c.json({ error: 'Error updating reward' }, 500);
+  }
+});
+
+app.delete('/server/admin/rewards/:rewardId', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const rewardId = c.req.param('rewardId');
+    const current = await kv.get(`reward:${rewardId}`);
+    if (!current) {
+      return c.json({ error: 'Reward not found' }, 404);
+    }
+
+    await kv.del(`reward:${rewardId}`);
+    return c.json({ message: 'Reward deleted successfully' });
+  } catch (error) {
+    console.log(`Admin rewards delete error: ${error}`);
+    return c.json({ error: 'Error deleting reward' }, 500);
+  }
+});
+
+app.post('/server/admin/rewards/:rewardId/assign', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const rewardId = c.req.param('rewardId');
+    const reward = await kv.get(`reward:${rewardId}`);
+    if (!reward) {
+      return c.json({ error: 'Reward not found' }, 404);
+    }
+
+    const payload = await c.req.json();
+    const userId = String(payload?.userId || '').trim();
+    const expiresInDaysRaw = Number(payload?.expiresInDays || 30);
+    const expiresInDays = Math.min(90, Math.max(1, Number.isFinite(expiresInDaysRaw) ? expiresInDaysRaw : 30));
+
+    if (!userId) {
+      return c.json({ error: 'userId is required' }, 400);
+    }
+
+    const userProfile = await kv.get(`user:${userId}`);
+    if (!userProfile) {
+      return c.json({ error: 'Target user not found' }, 404);
+    }
+
+    const couponCode = generateCouponCode();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime());
+    expiresAt.setDate(expiresAt.getDate() + expiresInDays);
+
+    const redemptionId = crypto.randomUUID();
+    const redemption = {
+      id: redemptionId,
+      userId,
+      rewardId,
+      rewardTitle: reward.title,
+      pointsCost: Number(reward.pointsCost || 0),
+      status: 'pending',
+      couponCode,
+      expiresAt: expiresAt.toISOString(),
+      createdAt: now.toISOString(),
+      assignedBy: auth.user.id,
+      assignmentType: 'admin_direct',
+    };
+
+    await kv.set(`redemption:${userId}:${redemptionId}`, redemption);
+
+    const couponHTML = generateCouponHTML(couponCode, redemption, reward, userProfile);
+    await kv.set(`coupon-html:${redemptionId}`, couponHTML);
+
+    return c.json({
+      message: 'Reward assigned successfully',
+      redemption: {
+        ...redemption,
+        couponUrl: `/server/coupons/${redemptionId}`,
+      },
+    }, 201);
+  } catch (error) {
+    console.log(`Admin rewards assign error: ${error}`);
+    return c.json({ error: 'Error assigning reward' }, 500);
+  }
+});
+
 // Redeem a reward
 app.post("/server/rewards/:rewardId/redeem", async (c) => {
   try {
@@ -3540,6 +3832,138 @@ app.get("/server/points/:pointId/inventory", async (c) => {
   } catch (error) {
     console.log(`Get inventory error: ${error}`);
     return c.json({ error: 'Error getting inventory' }, 500);
+  }
+});
+
+// Suggested routes for collectors based on current location + pending collections + nearest points
+app.get('/server/collector/routes/suggestions', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+
+    if (!user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const userProfile = await kv.get(`user:${user.id}`);
+    if (!userProfile || (userProfile.type !== 'collector' && userProfile.type !== 'admin')) {
+      return c.json({ error: 'Forbidden: Only collectors/admin can request route suggestions' }, 403);
+    }
+
+    const lat = Number(c.req.query('lat'));
+    const lng = Number(c.req.query('lng'));
+    const maxStopsRaw = Number(c.req.query('maxStops') || 5);
+    const maxStops = Math.min(15, Math.max(1, Number.isFinite(maxStopsRaw) ? maxStopsRaw : 5));
+
+    const collectorOrigin = {
+      lat: Number.isFinite(lat) ? lat : 15.5042,
+      lng: Number.isFinite(lng) ? lng : -88.025,
+    };
+
+    const pricing = await getPricingSettings();
+    const collections = await kv.getByPrefix('collection:');
+    const pointsRaw = await kv.getByPrefix('point:');
+    const points = pointsRaw.map(withPointStatus);
+
+    const actionableCollections = collections.filter((item: any) => {
+      const status = String(item?.status || '').toLowerCase();
+      return status === 'pending' || status === 'in-progress';
+    });
+
+    const suggestions = actionableCollections
+      .map((collection: any) => {
+        const collectionCoords = collection?.coordinates;
+        if (!collectionCoords || !Number.isFinite(Number(collectionCoords.lat)) || !Number.isFinite(Number(collectionCoords.lng))) {
+          return null;
+        }
+
+        const pickup = {
+          lat: Number(collectionCoords.lat),
+          lng: Number(collectionCoords.lng),
+        };
+
+        const availablePoints = points.filter((point: any) => point?.coordinates && point.isAvailable !== false);
+        const candidatePoints = availablePoints.length > 0 ? availablePoints : points;
+
+        if (candidatePoints.length === 0) {
+          return null;
+        }
+
+        let bestPoint: any = null;
+        let bestCollectionToPointKm = Number.POSITIVE_INFINITY;
+
+        for (const point of candidatePoints) {
+          const coords = point?.coordinates;
+          if (!coords || !Number.isFinite(Number(coords.lat)) || !Number.isFinite(Number(coords.lng))) continue;
+
+          const distance = haversineKm(pickup, { lat: Number(coords.lat), lng: Number(coords.lng) });
+          if (distance < bestCollectionToPointKm) {
+            bestCollectionToPointKm = distance;
+            bestPoint = point;
+          }
+        }
+
+        if (!bestPoint) {
+          return null;
+        }
+
+        const collectorToPickupKm = haversineKm(collectorOrigin, pickup);
+        const totalRouteKm = collectorToPickupKm + bestCollectionToPointKm;
+
+        const tireCondition = normalizeTireCondition(collection?.tireCondition);
+        const tariffPerTire = Number(pricing.generatorTariffsByCondition[tireCondition] || pricing.generatorTariffsByCondition.regular || 0);
+        const tireCount = Number(collection?.tireCount || 0);
+        const generatorPayment = Number((tariffPerTire * tireCount).toFixed(2));
+        const collectorFreight = estimateCollectorFreight(
+          totalRouteKm,
+          Number(pricing.collectorFreight.min || 15),
+          Number(pricing.collectorFreight.max || 25),
+        );
+
+        return {
+          collectionId: collection.id,
+          collectionStatus: collection.status,
+          pickupAddress: collection.address || 'Sin direccion',
+          dropoffPoint: {
+            id: bestPoint.id,
+            name: bestPoint.name,
+            address: bestPoint.address,
+          },
+          tireCount,
+          tireType: collection.tireType || 'N/A',
+          tireCondition,
+          distance: {
+            collectorToPickupKm: Number(collectorToPickupKm.toFixed(2)),
+            pickupToPointKm: Number(bestCollectionToPointKm.toFixed(2)),
+            totalKm: Number(totalRouteKm.toFixed(2)),
+          },
+          estimatedCompensation: {
+            currency: pricing.currency || 'HNL',
+            generatorPerTire: tariffPerTire,
+            generatorTotal: generatorPayment,
+            collectorFreight,
+          },
+        };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => {
+        if (a.collectionStatus === 'pending' && b.collectionStatus !== 'pending') return -1;
+        if (a.collectionStatus !== 'pending' && b.collectionStatus === 'pending') return 1;
+        return Number(a.distance.totalKm) - Number(b.distance.totalKm);
+      })
+      .slice(0, maxStops);
+
+    return c.json({
+      origin: collectorOrigin,
+      pricing,
+      totalCandidates: actionableCollections.length,
+      suggestions,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.log(`Collector route suggestions error: ${error}`);
+    return c.json({ error: 'Error generating route suggestions' }, 500);
   }
 });
 

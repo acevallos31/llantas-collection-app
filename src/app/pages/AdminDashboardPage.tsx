@@ -23,6 +23,7 @@ import {
   Activity,
   Gauge,
   Users,
+  Gift,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL, getAuthHeaders, authAPI } from '../services/api.js';
@@ -2188,6 +2189,12 @@ export default function AdminDashboardPage() {
                 <h3 className="font-semibold flex items-center gap-2"><Warehouse className="w-4 h-4" /> Gestión de Centros</h3>
                 <p className="text-sm text-gray-600 mt-1">Accede al módulo para crear, editar y eliminar centros de acopio.</p>
                 <Button className="mt-3" onClick={() => navigate('/admin-points')}>Abrir módulo de centros</Button>
+              </Card>
+
+              <Card className="p-4">
+                <h3 className="font-semibold flex items-center gap-2"><Gift className="w-4 h-4" /> Recompensas y Tarifas</h3>
+                <p className="text-sm text-gray-600 mt-1">Administra el catálogo de recompensas, su asignación a usuarios y las tarifas monetarias (LPS).</p>
+                <Button className="mt-3" onClick={() => navigate('/admin-rewards-pricing')}>Abrir módulo de recompensas</Button>
               </Card>
             </TabsContent>
           </Tabs>

@@ -11,6 +11,7 @@ import CollectionDetailPage from './pages/CollectionDetailPage';
 import CollectorDashboardPage from './pages/CollectorDashboardPage';
 import AdminPointsPage from './pages/AdminPointsPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
+import AdminRewardsPricingPage from './pages/AdminRewardsPricingPage';
 
 export const router = createBrowserRouter([
   {
@@ -60,6 +61,10 @@ export const router = createBrowserRouter([
       {
         path: 'admin-points',
         Component: AdminPointsPage,
+      },
+      {
+        path: 'admin-rewards-pricing',
+        Component: AdminRewardsPricingPage,
       },
     ],
   },
