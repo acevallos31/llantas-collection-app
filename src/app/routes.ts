@@ -7,6 +7,10 @@ import HistoryPage from './pages/HistoryPage';
 import RewardsPage from './pages/RewardsPage';
 import NewCollectionPage from './pages/NewCollectionPage';
 import SettingsPage from './pages/SettingsPage';
+import CollectionDetailPage from './pages/CollectionDetailPage';
+import CollectorDashboardPage from './pages/CollectorDashboardPage';
+import AdminPointsPage from './pages/AdminPointsPage';
+import AdminDashboardPage from './pages/AdminDashboardPage';
 
 export const router = createBrowserRouter([
   {
@@ -22,12 +26,24 @@ export const router = createBrowserRouter([
         Component: HomePage,
       },
       {
+        path: 'collector',
+        Component: CollectorDashboardPage,
+      },
+      {
+        path: 'admin',
+        Component: AdminDashboardPage,
+      },
+      {
         path: 'profile',
         Component: ProfilePage,
       },
       {
         path: 'history',
         Component: HistoryPage,
+      },
+      {
+        path: 'history/:collectionId',
+        Component: CollectionDetailPage,
       },
       {
         path: 'rewards',
@@ -40,6 +56,10 @@ export const router = createBrowserRouter([
       {
         path: 'settings',
         Component: SettingsPage,
+      },
+      {
+        path: 'admin-points',
+        Component: AdminPointsPage,
       },
     ],
   },

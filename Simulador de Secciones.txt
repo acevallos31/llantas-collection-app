@@ -1,0 +1,9 @@
+$base = "https://tqsjlywjyxgeixawlrcq.supabase.co/functions/v1/server"
+
+# iniciar 3 sesiones activas
+Invoke-WebRequest -Uri "$base/analytics/session/start" -Method POST -Body '{"sessionId":"s1","startedAt":"2026-03-07T12:00:00.000Z"}' -ContentType "application/json" -UseBasicParsing
+Invoke-WebRequest -Uri "$base/analytics/session/start" -Method POST -Body '{"sessionId":"s2","startedAt":"2026-03-07T12:00:05.000Z"}' -ContentType "application/json" -UseBasicParsing
+Invoke-WebRequest -Uri "$base/analytics/session/start" -Method POST -Body '{"sessionId":"s3","startedAt":"2026-03-07T12:00:10.000Z"}' -ContentType "application/json" -UseBasicParsing
+
+# cerrar 1 sesión (quedan 2 concurrentes)
+Invoke-WebRequest -Uri "$base/analytics/session/end" -Method POST -Body '{"sessionId":"s1","durationMs":180000}' -ContentType "application/json" -UseBasicParsing

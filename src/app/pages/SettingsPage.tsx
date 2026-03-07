@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
@@ -33,6 +33,7 @@ import {
 import { toast } from 'sonner';
 
 export default function SettingsPage() {
+  const SETTINGS_STORAGE_KEY = 'ecolant_settings';
   const navigate = useNavigate();
   const { signout, changePassword, deleteAccount, user } = useAuth();
   const [notifications, setNotifications] = useState({
@@ -52,6 +53,41 @@ export default function SettingsPage() {
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
   const [deletePassword, setDeletePassword] = useState('');
+  const [darkMode, setDarkMode] = useState(false);
+  const [isPrivacyDialogOpen, setIsPrivacyDialogOpen] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(SETTINGS_STORAGE_KEY);
+      if (!stored) {
+        setDarkMode(document.documentElement.classList.contains('dark'));
+        return;
+      }
+
+      const parsed = JSON.parse(stored) as {
+        notifications?: typeof notifications;
+        darkMode?: boolean;
+      };
+
+      if (parsed.notifications) {
+        setNotifications(parsed.notifications);
+      }
+
+      const storedDarkMode = Boolean(parsed.darkMode);
+      setDarkMode(storedDarkMode);
+      document.documentElement.classList.toggle('dark', storedDarkMode);
+    } catch {
+      setDarkMode(document.documentElement.classList.contains('dark'));
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({ notifications, darkMode }),
+    );
+    document.documentElement.classList.toggle('dark', darkMode);
+  }, [notifications, darkMode]);
 
   const handleLogout = async () => {
     try {
@@ -264,10 +300,10 @@ export default function SettingsPage() {
                 <Moon className="w-5 h-5 text-gray-600" />
                 <div>
                   <div className="font-medium">Modo Oscuro</div>
-                  <div className="text-xs text-gray-500">Próximamente disponible</div>
+                  <div className="text-xs text-gray-500">Activar tema oscuro</div>
                 </div>
               </div>
-              <Switch disabled />
+              <Switch checked={darkMode} onCheckedChange={setDarkMode} />
             </div>
           </Card>
         </div>
@@ -276,7 +312,12 @@ export default function SettingsPage() {
         <div>
           <h2 className="text-sm font-semibold text-gray-500 mb-3 px-1">SOPORTE</h2>
           <Card className="divide-y">
-            <button className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors">
+            <button
+              className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+              onClick={() => {
+                window.open('mailto:soporte@ecollantapp.com?subject=Ayuda%20EcolLantApp', '_blank');
+              }}
+            >
               <div className="flex items-center gap-3">
                 <HelpCircle className="w-5 h-5 text-gray-600" />
                 <span className="font-medium">Centro de Ayuda</span>
@@ -295,7 +336,10 @@ export default function SettingsPage() {
               <ChevronRight className="w-5 h-5 text-gray-400" />
             </button>
 
-            <button className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors">
+            <button
+              className="w-full flex items-center justify-between p-4 hover:bg-gray-50 transition-colors"
+              onClick={() => setIsPrivacyDialogOpen(true)}
+            >
               <div className="flex items-center gap-3">
                 <FileText className="w-5 h-5 text-gray-600" />
                 <span className="font-medium">Política de Privacidad</span>
@@ -496,6 +540,28 @@ export default function SettingsPage() {
             <Button onClick={handleChangePassword} disabled={isChangingPassword}>
               {isChangingPassword ? 'Guardando...' : 'Actualizar contraseña'}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isPrivacyDialogOpen} onOpenChange={setIsPrivacyDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Politica de Privacidad</DialogTitle>
+            <DialogDescription>
+              Resumen de uso y proteccion de datos en EcolLantApp.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 text-sm text-gray-700">
+            <p>1. Solo usamos tus datos para operar recolecciones, recompensas y trazabilidad.</p>
+            <p>2. Tu informacion de autenticacion es gestionada por Supabase Auth.</p>
+            <p>3. Puedes solicitar eliminacion total de cuenta desde esta misma pantalla.</p>
+            <p>4. Los comprobantes y eventos de trazabilidad se conservan para cumplimiento operativo.</p>
+          </div>
+
+          <DialogFooter>
+            <Button onClick={() => setIsPrivacyDialogOpen(false)}>Cerrar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

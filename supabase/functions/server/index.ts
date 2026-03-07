@@ -5,6 +5,8 @@ import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
 import * as kv from "./kv_store.tsx";
 
 const app = new Hono();
+const ADMIN_EMAIL = 'admin@ecollant.com';
+const ADMIN_DEFAULT_PASSWORD = 'AdminEcolLant2026!';
 
 const generateQrCode = (userId: string, collectionId: string) => {
   return `ECOL-${userId.slice(0, 8).toUpperCase()}-${collectionId.slice(0, 8).toUpperCase()}`;
@@ -62,6 +64,78 @@ const findCollectionKeyById = async (collectionId: string) => {
   return null;
 };
 
+const ensureAdminUser = async () => {
+  try {
+    const supabase = getSupabaseClient(true);
+    const { data: usersData, error: usersError } = await supabase.auth.admin.listUsers({
+      page: 1,
+      perPage: 1000,
+    });
+
+    if (usersError) {
+      console.log(`Admin bootstrap listUsers error: ${usersError.message}`);
+      return;
+    }
+
+    const existing = usersData?.users?.find(
+      (item) => item.email?.toLowerCase() === ADMIN_EMAIL,
+    );
+
+    let adminUserId = existing?.id;
+
+    if (!adminUserId) {
+      const { data: createdData, error: createError } = await supabase.auth.admin.createUser({
+        email: ADMIN_EMAIL,
+        password: ADMIN_DEFAULT_PASSWORD,
+        email_confirm: true,
+        user_metadata: {
+          name: 'Administrador EcolLant',
+          type: 'admin',
+        },
+      });
+
+      if (createError || !createdData?.user?.id) {
+        console.log(`Admin bootstrap createUser error: ${createError?.message || 'unknown'}`);
+        return;
+      }
+
+      adminUserId = createdData.user.id;
+      console.log('Default admin user created: admin@ecollant.com');
+    }
+
+    if (!adminUserId) return;
+
+    const existingProfile = await kv.get(`user:${adminUserId}`);
+    const adminProfile = {
+      id: adminUserId,
+      email: ADMIN_EMAIL,
+      name: existingProfile?.name || 'Administrador EcolLant',
+      phone: existingProfile?.phone || '+504 2550-0001',
+      type: 'admin',
+      points: 0,
+      level: 'Administrador',
+      address: existingProfile?.address || 'San Pedro Sula, Honduras',
+      createdAt: existingProfile?.createdAt || new Date().toISOString(),
+    };
+
+    await kv.set(`user:${adminUserId}`, adminProfile);
+
+    const existingStats = await kv.get(`stats:${adminUserId}`);
+    if (!existingStats) {
+      await kv.set(`stats:${adminUserId}`, {
+        totalCollections: 0,
+        totalTires: 0,
+        totalPoints: 0,
+        co2Saved: 0,
+        treesEquivalent: 0,
+        recycledWeight: 0,
+      });
+    }
+  } catch (error) {
+    console.log(`Admin bootstrap error: ${error}`);
+  }
+};
+
 // Supabase client helper
 const getSupabaseClient = (serviceRole = false) => {
   return createClient(
@@ -70,6 +144,27 @@ const getSupabaseClient = (serviceRole = false) => {
       ? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
       : Deno.env.get("SUPABASE_ANON_KEY")!
   );
+};
+
+const requireAdmin = async (c: any) => {
+  const accessToken = c.req.header('Authorization')?.split(' ')[1];
+  if (!accessToken) {
+    return { error: c.json({ error: 'Unauthorized' }, 401) };
+  }
+
+  const supabase = getSupabaseClient(true);
+  const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+
+  if (error || !user?.id) {
+    return { error: c.json({ error: 'Unauthorized' }, 401) };
+  }
+
+  const userProfile = await kv.get(`user:${user.id}`);
+  if (userProfile?.type !== 'admin') {
+    return { error: c.json({ error: 'Forbidden' }, 403) };
+  }
+
+  return { user, userProfile };
 };
 
 // Enable logger
@@ -92,12 +187,310 @@ app.get("/server/health", (c) => {
   return c.json({ status: "ok" });
 });
 
+// ==================== ANALYTICS ROUTES ====================
+
+const getAnalyticsOverview = async () => {
+  const supabase = getSupabaseClient(true);
+  const { data, error } = await supabase
+    .from('analytics_overview')
+    .select('*')
+    .eq('id', 1)
+    .single();
+
+  if (error || !data) {
+    throw new Error(error?.message || 'analytics_overview row is missing');
+  }
+
+  const totalVisits = Number(data?.total_visits || 0);
+  const totalSessionDurationMs = Number(data?.total_session_duration_ms || 0);
+  const sessionCount = Number(data?.session_count || 0);
+  const totalAppLoadTimeMs = Number(data?.total_app_load_time_ms || 0);
+  const appLoadSampleCount = Number(data?.app_load_sample_count || 0);
+  const activeSessions = Number(data?.active_sessions || 0);
+  const concurrentSessions = Number(data?.concurrent_sessions || 0);
+  const peakConcurrentSessions = Number(data?.peak_concurrent_sessions || 0);
+
+  return {
+    totalVisits,
+    totalSessionDurationMs,
+    sessionCount,
+    totalAppLoadTimeMs,
+    appLoadSampleCount,
+    activeSessions,
+    concurrentSessions,
+    peakConcurrentSessions,
+    averageSessionDurationMs: sessionCount > 0 ? totalSessionDurationMs / sessionCount : 0,
+    averageAppLoadTimeMs: appLoadSampleCount > 0 ? totalAppLoadTimeMs / appLoadSampleCount : 0,
+    updatedAt: data?.updated_at || null,
+  };
+};
+
+const ACTIVE_SESSION_TTL_MS = 20 * 60 * 1000;
+
+const syncConcurrentSessions = async () => {
+  const supabase = getSupabaseClient(true);
+  const ttlSeconds = Math.floor(ACTIVE_SESSION_TTL_MS / 1000);
+  const { data, error } = await supabase.rpc('analytics_sync_overview', {
+    p_ttl_seconds: ttlSeconds,
+  });
+
+  if (error || !data) {
+    throw new Error(error?.message || 'Failed to sync analytics overview');
+  }
+
+  return {
+    totalVisits: Number(data?.total_visits || 0),
+    totalSessionDurationMs: Number(data?.total_session_duration_ms || 0),
+    sessionCount: Number(data?.session_count || 0),
+    totalAppLoadTimeMs: Number(data?.total_app_load_time_ms || 0),
+    appLoadSampleCount: Number(data?.app_load_sample_count || 0),
+    averageSessionDurationMs: Number(data?.session_count || 0) > 0
+      ? Number(data?.total_session_duration_ms || 0) / Number(data?.session_count || 0)
+      : 0,
+    averageAppLoadTimeMs: Number(data?.app_load_sample_count || 0) > 0
+      ? Number(data?.total_app_load_time_ms || 0) / Number(data?.app_load_sample_count || 0)
+      : 0,
+    activeSessions: Number(data?.active_sessions || 0),
+    concurrentSessions: Number(data?.concurrent_sessions || 0),
+    peakConcurrentSessions: Number(data?.peak_concurrent_sessions || 0),
+    updatedAt: data?.updated_at || null,
+  };
+};
+
+const getAppSettings = async () => {
+  return (
+    (await kv.get('app:settings')) || {
+      appName: 'EcolLantApp',
+      supportEmail: 'soporte@ecollant.com',
+      maintenanceMode: false,
+      rewardsEnabled: true,
+      includeAdminAnalytics: false,
+    }
+  );
+};
+
+const shouldTrackAnalyticsForUserType = async (userType?: string) => {
+  if (userType !== 'admin') {
+    return true;
+  }
+
+  const settings = await getAppSettings();
+  return Boolean(settings?.includeAdminAnalytics);
+};
+
+const getPeriodBucket = (iso: string, period: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return 'invalid-date';
+  }
+
+  if (period === 'weekly') {
+    const weekStart = new Date(date);
+    const day = weekStart.getUTCDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    weekStart.setUTCDate(weekStart.getUTCDate() + diff);
+    weekStart.setUTCHours(0, 0, 0, 0);
+    return weekStart.toISOString().slice(0, 10);
+  }
+
+  if (period === 'monthly') {
+    return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+
+  return date.toISOString().slice(0, 10);
+};
+
+app.post('/server/analytics/visit', async (c) => {
+  try {
+    const payload = await c.req.json().catch(() => ({}));
+    if (!(await shouldTrackAnalyticsForUserType(payload?.userType))) {
+      return c.json({ message: 'Visit tracking skipped for admin' }, 200);
+    }
+    const supabase = getSupabaseClient(true);
+    const { error } = await supabase.rpc('analytics_track_visit', {
+      p_path: payload?.path || null,
+      p_user_type: payload?.userType || 'unknown',
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+    return c.json({ message: 'Visit tracked' }, 201);
+  } catch (error) {
+    console.log(`Analytics visit error: ${error}`);
+    return c.json({ error: 'Error tracking visit' }, 500);
+  }
+});
+
+app.post('/server/analytics/session', async (c) => {
+  try {
+    const payload = await c.req.json();
+    if (!(await shouldTrackAnalyticsForUserType(payload?.userType))) {
+      return c.json({ message: 'Session tracking skipped for admin' }, 200);
+    }
+    const durationMs = Math.max(0, Number(payload?.durationMs || 0));
+
+    if (!Number.isFinite(durationMs)) {
+      return c.json({ error: 'durationMs must be a number' }, 400);
+    }
+
+    const supabase = getSupabaseClient(true);
+    const { error } = await supabase.rpc('analytics_track_session_end', {
+      p_session_id: payload?.sessionId || `legacy-${crypto.randomUUID()}`,
+      p_duration_ms: durationMs,
+      p_user_type: payload?.userType || 'unknown',
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+    return c.json({ message: 'Session tracked' }, 201);
+  } catch (error) {
+    console.log(`Analytics session error: ${error}`);
+    return c.json({ error: 'Error tracking session' }, 500);
+  }
+});
+
+app.post('/server/analytics/load', async (c) => {
+  try {
+    const payload = await c.req.json();
+    if (!(await shouldTrackAnalyticsForUserType(payload?.userType))) {
+      return c.json({ message: 'Load tracking skipped for admin' }, 200);
+    }
+    const loadTimeMs = Math.max(0, Number(payload?.loadTimeMs || 0));
+
+    if (!Number.isFinite(loadTimeMs)) {
+      return c.json({ error: 'loadTimeMs must be a number' }, 400);
+    }
+
+    const supabase = getSupabaseClient(true);
+    const { error } = await supabase.rpc('analytics_track_load', {
+      p_load_time_ms: loadTimeMs,
+      p_user_type: payload?.userType || 'unknown',
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+    return c.json({ message: 'Load time tracked' }, 201);
+  } catch (error) {
+    console.log(`Analytics load error: ${error}`);
+    return c.json({ error: 'Error tracking load time' }, 500);
+  }
+});
+
+app.post('/server/analytics/session/start', async (c) => {
+  try {
+    const payload = await c.req.json();
+    if (!(await shouldTrackAnalyticsForUserType(payload?.userType))) {
+      return c.json({ message: 'Session start skipped for admin', activeSessions: 0, concurrentSessions: 0 }, 200);
+    }
+    const sessionId = String(payload?.sessionId || '').trim();
+    if (!sessionId) {
+      return c.json({ error: 'sessionId is required' }, 400);
+    }
+
+    const supabase = getSupabaseClient(true);
+    const { data, error } = await supabase.rpc('analytics_session_start_tx', {
+      p_session_id: sessionId,
+      p_started_at: payload?.startedAt || new Date().toISOString(),
+      p_user_type: payload?.userType || 'unknown',
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return c.json({
+      message: 'Session started',
+      activeSessions: Number(data?.active_sessions || 0),
+      concurrentSessions: Number(data?.concurrent_sessions || 0),
+    }, 201);
+  } catch (error) {
+    console.log(`Analytics session start error: ${error}`);
+    return c.json({ error: 'Error starting session' }, 500);
+  }
+});
+
+app.post('/server/analytics/session/ping', async (c) => {
+  try {
+    const payload = await c.req.json();
+    if (!(await shouldTrackAnalyticsForUserType(payload?.userType))) {
+      return c.json({ message: 'Session ping skipped for admin', activeSessions: 0, concurrentSessions: 0 }, 200);
+    }
+
+    const sessionId = String(payload?.sessionId || '').trim();
+    if (!sessionId) {
+      return c.json({ error: 'sessionId is required' }, 400);
+    }
+
+    const supabase = getSupabaseClient(true);
+    const { data, error } = await supabase.rpc('analytics_session_ping_tx', {
+      p_session_id: sessionId,
+      p_user_type: payload?.userType || 'unknown',
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return c.json({
+      message: 'Session ping tracked',
+      activeSessions: Number(data?.active_sessions || 0),
+      concurrentSessions: Number(data?.concurrent_sessions || 0),
+    });
+  } catch (error) {
+    console.log(`Analytics session ping error: ${error}`);
+    return c.json({ error: 'Error pinging session' }, 500);
+  }
+});
+
+app.post('/server/analytics/session/end', async (c) => {
+  try {
+    const payload = await c.req.json();
+    if (!(await shouldTrackAnalyticsForUserType(payload?.userType))) {
+      return c.json({ message: 'Session end skipped for admin', activeSessions: 0, concurrentSessions: 0 }, 200);
+    }
+    const sessionId = String(payload?.sessionId || '').trim();
+    const durationMs = Math.max(0, Number(payload?.durationMs || 0));
+
+    if (!sessionId) {
+      return c.json({ error: 'sessionId is required' }, 400);
+    }
+
+    if (!Number.isFinite(durationMs)) {
+      return c.json({ error: 'durationMs must be a number' }, 400);
+    }
+
+    const supabase = getSupabaseClient(true);
+    const { data, error } = await supabase.rpc('analytics_track_session_end', {
+      p_session_id: sessionId,
+      p_duration_ms: durationMs,
+      p_user_type: payload?.userType || 'unknown',
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return c.json({
+      message: 'Session ended',
+      activeSessions: Number(data?.active_sessions || 0),
+      concurrentSessions: Number(data?.concurrent_sessions || 0),
+    }, 201);
+  } catch (error) {
+    console.log(`Analytics session end error: ${error}`);
+    return c.json({ error: 'Error ending session' }, 500);
+  }
+});
+
 // ==================== AUTH ROUTES ====================
 
 // Sign up
 app.post("/server/auth/signup", async (c) => {
   try {
     const { email, password, name, phone, type, address } = await c.req.json();
+    const safeType = type === 'collector' ? 'collector' : 'generator';
     
     const supabase = getSupabaseClient(true);
     
@@ -105,7 +498,7 @@ app.post("/server/auth/signup", async (c) => {
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email,
       password,
-      user_metadata: { name, phone, type, address },
+      user_metadata: { name, phone, type: safeType, address },
       // Automatically confirm the user's email since an email server hasn't been configured.
       email_confirm: true
     });
@@ -122,7 +515,7 @@ app.post("/server/auth/signup", async (c) => {
       email,
       name,
       phone,
-      type: type || 'generator',
+      type: safeType,
       points: 0,
       level: 'Eco Novato',
       address: address || '',
@@ -219,11 +612,20 @@ app.post("/server/auth/signout", async (c) => {
       return c.json({ error: 'No token provided' }, 401);
     }
     
-    const supabase = getSupabaseClient();
-    const { error } = await supabase.auth.signOut();
-    
-    if (error) {
-      return c.json({ error: error.message }, 400);
+    const supabaseService = getSupabaseClient(true);
+    const { data: { user }, error: userError } = await supabaseService.auth.getUser(accessToken);
+
+    if (userError || !user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    // Best effort token revocation. Frontend still clears local storage unconditionally.
+    const adminAuth = (supabaseService.auth as any).admin;
+    if (adminAuth?.signOut) {
+      const { error: revokeError } = await adminAuth.signOut(accessToken);
+      if (revokeError) {
+        console.log(`Token revoke warning: ${revokeError.message}`);
+      }
     }
     
     return c.json({ message: 'Signed out successfully' });
@@ -362,6 +764,12 @@ app.get("/server/users/:userId", async (c) => {
     }
     
     const userId = c.req.param('userId');
+
+    // Users can only read their own profile.
+    if (user.id !== userId) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
     const userProfile = await kv.get(`user:${userId}`);
     
     if (!userProfile) {
@@ -568,7 +976,10 @@ app.put("/server/collections/:collectionId", async (c) => {
     }
 
     if (!isCollector && updates.status && updates.status !== currentCollection.status) {
-      return c.json({ error: 'Generators cannot change collection status' }, 403);
+      const canCancelPending = updates.status === 'cancelled' && currentCollection.status === 'pending';
+      if (!canCancelPending) {
+        return c.json({ error: 'Generators cannot change collection status' }, 403);
+      }
     }
 
     if (isCollector && updates.status && !['in-progress', 'completed', 'cancelled'].includes(updates.status)) {
@@ -594,7 +1005,11 @@ app.put("/server/collections/:collectionId", async (c) => {
     };
 
     if (updates.status && updates.status !== currentCollection.status) {
-      const nextStage = updates.status === 'completed' ? 'destino-final' : 'en-proceso';
+      const nextStage = updates.status === 'completed'
+        ? 'destino-final'
+        : updates.status === 'cancelled'
+          ? 'cancelada'
+          : 'en-proceso';
       traceability.currentStage = nextStage;
       traceability.events.push(
         createTraceEvent(
@@ -694,7 +1109,11 @@ app.get("/server/collections/:collectionId/trace", async (c) => {
     }
 
     const collectionId = c.req.param('collectionId');
-    const collection = await kv.get(`collection:${user.id}:${collectionId}`);
+    const userProfile = await kv.get(`user:${user.id}`);
+    const isCollector = userProfile?.type === 'collector';
+    const collection = isCollector
+      ? await findCollectionById(collectionId)
+      : await kv.get(`collection:${user.id}:${collectionId}`);
 
     if (!collection) {
       return c.json({ error: 'Collection not found' }, 404);
@@ -828,50 +1247,55 @@ app.get("/server/points", async (c) => {
 // Initialize collection points (seed data)
 app.post("/server/points/seed", async (c) => {
   try {
+    const existingPointKeys = await kv.getKeysByPrefix('point:');
+    if (existingPointKeys.length > 0) {
+      await kv.mdel(existingPointKeys);
+    }
+
     const mockPoints = [
       {
         id: '1',
         name: 'Centro de Acopio Norte',
-        address: 'Calle 170 #15-20, Bogotá',
-        coordinates: { lat: 4.7534, lng: -74.0426 },
+        address: 'Boulevard del Este, San Pedro Sula',
+        coordinates: { lat: 15.5123, lng: -88.0018 },
         capacity: 1000,
         currentLoad: 650,
-        acceptedTypes: ['Automóvil', 'Motocicleta', 'Camión', 'Bicicleta'],
+        acceptedTypes: ['Automóvil', 'Motocicleta', 'Camión', 'Autobus', 'Bicicleta'],
         hours: 'Lun-Sab: 8:00 AM - 6:00 PM',
-        phone: '+57 601 234 5678',
+        phone: '+504 2550-1200',
       },
       {
         id: '2',
         name: 'Centro de Acopio Sur',
-        address: 'Autopista Sur #45-67, Bogotá',
-        coordinates: { lat: 4.5709, lng: -74.1274 },
+        address: 'Salida a Choloma, San Pedro Sula',
+        coordinates: { lat: 15.4308, lng: -88.0362 },
         capacity: 800,
         currentLoad: 420,
-        acceptedTypes: ['Automóvil', 'Motocicleta', 'Camión'],
+        acceptedTypes: ['Automóvil', 'Motocicleta', 'Camión', 'Autobus'],
         hours: 'Lun-Vie: 7:00 AM - 5:00 PM',
-        phone: '+57 601 345 6789',
+        phone: '+504 2550-1300',
       },
       {
         id: '3',
-        name: 'Punto Verde Chapinero',
-        address: 'Carrera 13 #53-40, Bogotá',
-        coordinates: { lat: 4.6485, lng: -74.0625 },
+        name: 'Punto Verde Rivera Hernandez',
+        address: 'Colonia Moderna, San Pedro Sula',
+        coordinates: { lat: 15.5065, lng: -88.0248 },
         capacity: 500,
         currentLoad: 180,
         acceptedTypes: ['Automóvil', 'Motocicleta', 'Bicicleta'],
         hours: 'Lun-Sab: 9:00 AM - 7:00 PM',
-        phone: '+57 601 456 7890',
+        phone: '+504 2550-1400',
       },
       {
         id: '4',
-        name: 'EcoLlantas Suba',
-        address: 'Calle 145 #91-19, Bogotá',
-        coordinates: { lat: 4.7355, lng: -74.0909 },
+        name: 'EcoLlantas Cofradia',
+        address: 'Colonia Figueroa, San Pedro Sula',
+        coordinates: { lat: 15.4986, lng: -88.0327 },
         capacity: 600,
         currentLoad: 380,
-        acceptedTypes: ['Automóvil', 'Motocicleta', 'Camión'],
+        acceptedTypes: ['Automóvil', 'Motocicleta', 'Camión', 'Autobus'],
         hours: 'Lun-Vie: 8:00 AM - 6:00 PM, Sáb: 9:00 AM - 2:00 PM',
-        phone: '+57 601 567 8901',
+        phone: '+504 2550-1500',
       },
     ];
     
@@ -883,6 +1307,988 @@ app.post("/server/points/seed", async (c) => {
   } catch (error) {
     console.log(`Seed points error: ${error}`);
     return c.json({ error: 'Error seeding collection points' }, 500);
+  }
+});
+
+// Create collection point (collector admin)
+app.post("/server/points", async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+    const { user } = auth;
+
+    const {
+      name,
+      address,
+      coordinates,
+      capacity,
+      currentLoad,
+      acceptedTypes,
+      hours,
+      phone,
+    } = await c.req.json();
+
+    if (!name || !address || !coordinates || !Number.isFinite(Number(capacity)) || Number(capacity) <= 0) {
+      return c.json({ error: 'name, address, coordinates and capacity are required' }, 400);
+    }
+
+    const pointId = crypto.randomUUID();
+    const point = {
+      id: pointId,
+      name,
+      address,
+      coordinates: {
+        lat: Number(coordinates.lat),
+        lng: Number(coordinates.lng),
+      },
+      capacity: Number(capacity),
+      currentLoad: Math.max(0, Number(currentLoad || 0)),
+      acceptedTypes: Array.isArray(acceptedTypes) && acceptedTypes.length > 0
+        ? acceptedTypes
+        : ['Automóvil', 'Motocicleta', 'Camión', 'Autobus', 'Bicicleta'],
+      hours: hours || 'Lun-Sab: 8:00 AM - 6:00 PM',
+      phone: phone || '+504 0000-0000',
+      createdBy: user.id,
+      createdAt: new Date().toISOString(),
+    };
+
+    await kv.set(`point:${pointId}`, point);
+    return c.json(point, 201);
+  } catch (error) {
+    console.log(`Create point error: ${error}`);
+    return c.json({ error: 'Error creating collection point' }, 500);
+  }
+});
+
+// Update collection point (collector admin)
+app.put("/server/points/:pointId", async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+    const { user } = auth;
+
+    const pointId = c.req.param('pointId');
+    const updates = await c.req.json();
+    const currentPoint = await kv.get(`point:${pointId}`);
+
+    if (!currentPoint) {
+      return c.json({ error: 'Collection point not found' }, 404);
+    }
+
+    const updatedPoint = {
+      ...currentPoint,
+      ...updates,
+      id: pointId,
+      capacity: Number(updates.capacity ?? currentPoint.capacity),
+      currentLoad: Number(updates.currentLoad ?? currentPoint.currentLoad),
+      coordinates: updates.coordinates
+        ? {
+            lat: Number(updates.coordinates.lat),
+            lng: Number(updates.coordinates.lng),
+          }
+        : currentPoint.coordinates,
+      updatedAt: new Date().toISOString(),
+      updatedBy: user.id,
+    };
+
+    if (!Number.isFinite(updatedPoint.capacity) || updatedPoint.capacity <= 0) {
+      return c.json({ error: 'capacity must be a positive number' }, 400);
+    }
+
+    if (updatedPoint.currentLoad < 0 || updatedPoint.currentLoad > updatedPoint.capacity) {
+      return c.json({ error: 'currentLoad must be between 0 and capacity' }, 400);
+    }
+
+    await kv.set(`point:${pointId}`, updatedPoint);
+    return c.json(updatedPoint);
+  } catch (error) {
+    console.log(`Update point error: ${error}`);
+    return c.json({ error: 'Error updating collection point' }, 500);
+  }
+});
+
+// Delete collection point (collector admin)
+app.delete("/server/points/:pointId", async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const pointId = c.req.param('pointId');
+    const currentPoint = await kv.get(`point:${pointId}`);
+    if (!currentPoint) {
+      return c.json({ error: 'Collection point not found' }, 404);
+    }
+
+    await kv.del(`point:${pointId}`);
+    return c.json({ message: 'Collection point deleted successfully' });
+  } catch (error) {
+    console.log(`Delete point error: ${error}`);
+    return c.json({ error: 'Error deleting collection point' }, 500);
+  }
+});
+
+// ==================== ADMIN ROUTES ====================
+
+app.get('/server/admin/users', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const users = await kv.getByPrefix('user:');
+    return c.json(
+      users.map((item: any) => ({
+        id: item.id,
+        name: item.name,
+        email: item.email,
+        phone: item.phone,
+        type: item.type,
+        points: item.points || 0,
+        level: item.level || 'N/A',
+        createdAt: item.createdAt || null,
+      })),
+    );
+  } catch (error) {
+    console.log(`Admin users error: ${error}`);
+    return c.json({ error: 'Error getting users' }, 500);
+  }
+});
+
+app.post('/server/admin/users', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const {
+      email,
+      password,
+      name,
+      phone,
+      type,
+      address,
+    } = await c.req.json();
+
+    if (!email || !password || !name) {
+      return c.json({ error: 'email, password and name are required' }, 400);
+    }
+
+    if (password.length < 6) {
+      return c.json({ error: 'Password must be at least 6 characters' }, 400);
+    }
+
+    if (!['generator', 'collector', 'admin'].includes(type)) {
+      return c.json({ error: 'Invalid role' }, 400);
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+    const safePhone = phone || '';
+    const safeAddress = address || '';
+    const safeType = type as 'generator' | 'collector' | 'admin';
+
+    const supabase = getSupabaseClient(true);
+    const { data: createdData, error: createError } = await supabase.auth.admin.createUser({
+      email: normalizedEmail,
+      password,
+      email_confirm: true,
+      user_metadata: {
+        name,
+        phone: safePhone,
+        type: safeType,
+        address: safeAddress,
+      },
+    });
+
+    if (createError || !createdData?.user?.id) {
+      return c.json({ error: createError?.message || 'Error creating auth user' }, 400);
+    }
+
+    const userId = createdData.user.id;
+    const profile = {
+      id: userId,
+      email: normalizedEmail,
+      name,
+      phone: safePhone,
+      type: safeType,
+      points: 0,
+      level: safeType === 'admin' ? 'Administrador' : 'Eco Novato',
+      address: safeAddress,
+      createdAt: new Date().toISOString(),
+    };
+
+    await kv.set(`user:${userId}`, profile);
+    await kv.set(`stats:${userId}`, {
+      totalCollections: 0,
+      totalTires: 0,
+      totalPoints: 0,
+      co2Saved: 0,
+      treesEquivalent: 0,
+      recycledWeight: 0,
+    });
+
+    return c.json(profile, 201);
+  } catch (error) {
+    console.log(`Admin create user error: ${error}`);
+    return c.json({ error: 'Error creating user' }, 500);
+  }
+});
+
+app.put('/server/admin/users/:userId', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const userId = c.req.param('userId');
+    const updates = await c.req.json();
+    const current = await kv.get(`user:${userId}`);
+
+    if (!current) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+
+    const nextType = updates.type || current.type;
+    if (!['generator', 'collector', 'admin'].includes(nextType)) {
+      return c.json({ error: 'Invalid role' }, 400);
+    }
+
+    const nextEmail = String(updates.email || current.email || '').trim().toLowerCase();
+    if (!nextEmail) {
+      return c.json({ error: 'Email is required' }, 400);
+    }
+
+    const updated = {
+      ...current,
+      name: updates.name ?? current.name,
+      email: nextEmail,
+      phone: updates.phone ?? current.phone,
+      address: updates.address ?? current.address,
+      type: nextType,
+      level: nextType === 'admin' ? 'Administrador' : current.level,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const supabase = getSupabaseClient(true);
+    const { error: authUpdateError } = await supabase.auth.admin.updateUserById(userId, {
+      email: updated.email,
+      email_confirm: true,
+      user_metadata: {
+        name: updated.name,
+        phone: updated.phone,
+        type: updated.type,
+        address: updated.address,
+      },
+    });
+
+    if (authUpdateError) {
+      return c.json({ error: authUpdateError.message }, 400);
+    }
+
+    await kv.set(`user:${userId}`, updated);
+    return c.json(updated);
+  } catch (error) {
+    console.log(`Admin update user error: ${error}`);
+    return c.json({ error: 'Error updating user' }, 500);
+  }
+});
+
+app.put('/server/admin/users/:userId/role', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const userId = c.req.param('userId');
+    const { type } = await c.req.json();
+
+    if (!['generator', 'collector', 'admin'].includes(type)) {
+      return c.json({ error: 'Invalid role' }, 400);
+    }
+
+    const current = await kv.get(`user:${userId}`);
+    if (!current) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+
+    const updated = {
+      ...current,
+      type,
+      level: type === 'admin' ? 'Administrador' : current.level,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const supabase = getSupabaseClient(true);
+    const { error: authUpdateError } = await supabase.auth.admin.updateUserById(userId, {
+      user_metadata: {
+        name: updated.name,
+        phone: updated.phone,
+        type: updated.type,
+        address: updated.address,
+      },
+    });
+
+    if (authUpdateError) {
+      return c.json({ error: authUpdateError.message }, 400);
+    }
+
+    await kv.set(`user:${userId}`, updated);
+    return c.json(updated);
+  } catch (error) {
+    console.log(`Admin update role error: ${error}`);
+    return c.json({ error: 'Error updating user role' }, 500);
+  }
+});
+
+app.post('/server/admin/users/:userId/reset-password', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const userId = c.req.param('userId');
+    const { newPassword } = await c.req.json();
+
+    if (!newPassword || String(newPassword).length < 6) {
+      return c.json({ error: 'newPassword must be at least 6 characters' }, 400);
+    }
+
+    const profile = await kv.get(`user:${userId}`);
+    if (!profile) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+
+    const supabase = getSupabaseClient(true);
+    const { error: resetError } = await supabase.auth.admin.updateUserById(userId, {
+      password: String(newPassword),
+    });
+
+    if (resetError) {
+      return c.json({ error: resetError.message }, 400);
+    }
+
+    return c.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.log(`Admin reset password error: ${error}`);
+    return c.json({ error: 'Error resetting password' }, 500);
+  }
+});
+
+app.delete('/server/admin/users/:userId', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+    const { user: adminUser } = auth;
+
+    const userId = c.req.param('userId');
+    const profile = await kv.get(`user:${userId}`);
+
+    if (!profile) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+
+    if (userId === adminUser.id) {
+      return c.json({ error: 'Cannot delete your own account from admin panel' }, 400);
+    }
+
+    if (String(profile.email || '').toLowerCase() === ADMIN_EMAIL) {
+      return c.json({ error: 'Cannot delete the default admin account' }, 400);
+    }
+
+    const collectionKeys = await kv.getKeysByPrefix(`collection:${userId}:`);
+    const redemptionKeys = await kv.getKeysByPrefix(`redemption:${userId}:`);
+    const keysToDelete = [...collectionKeys, ...redemptionKeys, `user:${userId}`, `stats:${userId}`];
+
+    if (keysToDelete.length > 0) {
+      await kv.mdel(keysToDelete);
+    }
+
+    const supabase = getSupabaseClient(true);
+    const bucketName = 'make-b7bf90da-tire-photos';
+    const { data: files, error: listError } = await supabase.storage
+      .from(bucketName)
+      .list(userId, { limit: 1000 });
+
+    if (!listError && files && files.length > 0) {
+      const filePaths = files.map((file) => `${userId}/${file.name}`);
+      await supabase.storage.from(bucketName).remove(filePaths);
+    }
+
+    const { error: deleteError } = await supabase.auth.admin.deleteUser(userId);
+    if (deleteError) {
+      return c.json({ error: deleteError.message }, 400);
+    }
+
+    return c.json({ message: 'User deleted successfully' });
+  } catch (error) {
+    console.log(`Admin delete user error: ${error}`);
+    return c.json({ error: 'Error deleting user' }, 500);
+  }
+});
+
+app.get('/server/admin/settings', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const settings = await getAppSettings();
+
+    return c.json(settings);
+  } catch (error) {
+    console.log(`Admin settings get error: ${error}`);
+    return c.json({ error: 'Error getting settings' }, 500);
+  }
+});
+
+app.put('/server/admin/settings', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const updates = await c.req.json();
+    const current = await getAppSettings();
+
+    const merged = {
+      ...current,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await kv.set('app:settings', merged);
+
+    if (!merged.includeAdminAnalytics) {
+      const supabase = getSupabaseClient(true);
+      const { error: deleteError } = await supabase
+        .from('analytics_active_sessions')
+        .delete()
+        .eq('user_type', 'admin');
+      if (deleteError) {
+        throw new Error(deleteError.message);
+      }
+
+      await syncConcurrentSessions();
+    }
+
+    return c.json(merged);
+  } catch (error) {
+    console.log(`Admin settings update error: ${error}`);
+    return c.json({ error: 'Error updating settings' }, 500);
+  }
+});
+
+app.get('/server/admin/reports/overview', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const users = await kv.getByPrefix('user:');
+    const collections = await kv.getByPrefix('collection:');
+    const points = await kv.getByPrefix('point:');
+    const redemptions = await kv.getByPrefix('redemption:');
+
+    const pending = collections.filter((item: any) => item.status === 'pending').length;
+    const inProgress = collections.filter((item: any) => item.status === 'in-progress').length;
+    const completed = collections.filter((item: any) => item.status === 'completed').length;
+
+    return c.json({
+      users: {
+        total: users.length,
+        generators: users.filter((item: any) => item.type === 'generator').length,
+        collectors: users.filter((item: any) => item.type === 'collector').length,
+        admins: users.filter((item: any) => item.type === 'admin').length,
+      },
+      collections: {
+        total: collections.length,
+        pending,
+        inProgress,
+        completed,
+      },
+      points: {
+        totalCenters: points.length,
+        totalCapacity: points.reduce((acc: number, item: any) => acc + Number(item.capacity || 0), 0),
+        currentLoad: points.reduce((acc: number, item: any) => acc + Number(item.currentLoad || 0), 0),
+      },
+      rewards: {
+        redemptions: redemptions.length,
+      },
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.log(`Admin reports error: ${error}`);
+    return c.json({ error: 'Error getting reports overview' }, 500);
+  }
+});
+
+app.get('/server/admin/analytics', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const analytics = await getAnalyticsOverview();
+    return c.json(analytics);
+  } catch (error) {
+    console.log(`Admin analytics error: ${error}`);
+    return c.json({ error: 'Error getting analytics' }, 500);
+  }
+});
+
+app.get('/server/admin/analytics/report', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const fromParam = c.req.query('from');
+    const toParam = c.req.query('to');
+    const period = c.req.query('period') || 'daily';
+    const userType = c.req.query('userType') || 'all';
+
+    const fromDate = fromParam ? new Date(fromParam) : null;
+    const toDate = toParam ? new Date(toParam) : null;
+    const supabase = getSupabaseClient(true);
+    let query = supabase
+      .from('analytics_events')
+      .select('type, user_type, duration_ms, load_time_ms, timestamp, session_id');
+
+    if (fromDate && !Number.isNaN(fromDate.getTime())) {
+      query = query.gte('timestamp', fromDate.toISOString());
+    }
+
+    if (toDate && !Number.isNaN(toDate.getTime())) {
+      query = query.lte('timestamp', toDate.toISOString());
+    }
+
+    if (userType !== 'all') {
+      query = query.eq('user_type', userType);
+    }
+
+    const { data: eventsData, error: eventsError } = await query;
+    if (eventsError) {
+      throw new Error(eventsError.message);
+    }
+
+    const filtered = Array.isArray(eventsData)
+      ? eventsData.map((item: any) => ({
+          type: item.type,
+          userType: item.user_type,
+          durationMs: item.duration_ms,
+          loadTimeMs: item.load_time_ms,
+          timestamp: item.timestamp,
+          sessionId: item.session_id,
+        }))
+      : [];
+
+    const visitEvents = filtered.filter((item: any) => item.type === 'visit');
+    const loadEvents = filtered.filter((item: any) => item.type === 'load');
+    const sessionEvents = filtered.filter((item: any) => item.type === 'session_end');
+
+    const totalVisits = visitEvents.length;
+    const totalSessionDurationMs = sessionEvents.reduce((acc: number, item: any) => acc + Number(item.durationMs || 0), 0);
+    const totalLoadTimeMs = loadEvents.reduce((acc: number, item: any) => acc + Number(item.loadTimeMs || 0), 0);
+    const overviewSnapshot = await getAnalyticsOverview();
+
+    const summary = {
+      totalVisits,
+      averageSessionDurationMs: sessionEvents.length > 0 ? totalSessionDurationMs / sessionEvents.length : 0,
+      averageAppLoadTimeMs: loadEvents.length > 0 ? totalLoadTimeMs / loadEvents.length : 0,
+      sessionCount: sessionEvents.length,
+      loadSampleCount: loadEvents.length,
+      concurrentSessions: Number(overviewSnapshot.concurrentSessions || 0),
+      peakConcurrentSessions: Number(overviewSnapshot.peakConcurrentSessions || 0),
+    };
+
+    const buckets = new Map<string, any>();
+    for (const event of filtered) {
+      const bucketKey = getPeriodBucket(event.timestamp, period);
+      if (bucketKey === 'invalid-date') continue;
+      const current = buckets.get(bucketKey) || {
+        period: bucketKey,
+        visits: 0,
+        sessionCount: 0,
+        totalSessionDurationMs: 0,
+        loadSampleCount: 0,
+        totalLoadTimeMs: 0,
+      };
+
+      if (event.type === 'visit') {
+        current.visits += 1;
+      }
+
+      if (event.type === 'session_end') {
+        current.sessionCount += 1;
+        current.totalSessionDurationMs += Number(event.durationMs || 0);
+      }
+
+      if (event.type === 'load') {
+        current.loadSampleCount += 1;
+        current.totalLoadTimeMs += Number(event.loadTimeMs || 0);
+      }
+
+      buckets.set(bucketKey, current);
+    }
+
+    const series = Array.from(buckets.values())
+      .sort((a, b) => String(a.period).localeCompare(String(b.period)))
+      .map((item: any) => ({
+        period: item.period,
+        visits: item.visits,
+        averageSessionDurationMs: item.sessionCount > 0 ? item.totalSessionDurationMs / item.sessionCount : 0,
+        averageAppLoadTimeMs: item.loadSampleCount > 0 ? item.totalLoadTimeMs / item.loadSampleCount : 0,
+      }));
+
+    return c.json({
+      filters: {
+        from: fromParam || null,
+        to: toParam || null,
+        period,
+        userType,
+      },
+      summary,
+      series,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.log(`Admin analytics report error: ${error}`);
+    return c.json({ error: 'Error generating analytics report' }, 500);
+  }
+});
+
+app.get('/server/admin/analytics/campaigns', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const campaigns = await kv.getByPrefix('analytics:campaign:');
+    campaigns.sort((a: any, b: any) => String(a.startsAt || '').localeCompare(String(b.startsAt || '')));
+    return c.json(campaigns);
+  } catch (error) {
+    console.log(`Admin analytics campaigns get error: ${error}`);
+    return c.json({ error: 'Error getting analytics campaigns' }, 500);
+  }
+});
+
+app.post('/server/admin/analytics/campaigns', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const body = await c.req.json();
+    const name = String(body?.name || '').trim();
+    const startsAt = String(body?.startsAt || '').trim();
+    const endsAt = body?.endsAt ? String(body.endsAt) : null;
+    const period = body?.period || 'daily';
+    const userType = body?.userType || 'all';
+
+    if (!name || !startsAt) {
+      return c.json({ error: 'name and startsAt are required' }, 400);
+    }
+
+    const startsAtDate = new Date(startsAt);
+    if (Number.isNaN(startsAtDate.getTime())) {
+      return c.json({ error: 'startsAt must be a valid date' }, 400);
+    }
+
+    const campaignId = crypto.randomUUID();
+    const campaign = {
+      id: campaignId,
+      name,
+      startsAt,
+      endsAt,
+      period,
+      userType,
+      status: startsAtDate.getTime() > Date.now() ? 'scheduled' : 'active',
+      createdAt: new Date().toISOString(),
+      createdBy: auth.user.id,
+    };
+
+    await kv.set(`analytics:campaign:${campaignId}`, campaign);
+    return c.json(campaign, 201);
+  } catch (error) {
+    console.log(`Admin analytics campaign create error: ${error}`);
+    return c.json({ error: 'Error creating analytics campaign' }, 500);
+  }
+});
+
+app.put('/server/admin/analytics/campaigns/:campaignId', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const campaignId = c.req.param('campaignId');
+    const current = await kv.get(`analytics:campaign:${campaignId}`);
+    if (!current) {
+      return c.json({ error: 'Campaign not found' }, 404);
+    }
+
+    const body = await c.req.json();
+    const name = String(body?.name ?? current.name ?? '').trim();
+    const startsAt = String(body?.startsAt ?? current.startsAt ?? '').trim();
+    const endsAt = body?.endsAt !== undefined ? (body?.endsAt ? String(body.endsAt) : null) : current.endsAt ?? null;
+    const period = body?.period || current.period || 'daily';
+    const userType = body?.userType || current.userType || 'all';
+
+    if (!name || !startsAt) {
+      return c.json({ error: 'name and startsAt are required' }, 400);
+    }
+
+    const startsAtDate = new Date(startsAt);
+    if (Number.isNaN(startsAtDate.getTime())) {
+      return c.json({ error: 'startsAt must be a valid date' }, 400);
+    }
+
+    const status = startsAtDate.getTime() > Date.now() ? 'scheduled' : 'active';
+    const updated = {
+      ...current,
+      name,
+      startsAt,
+      endsAt,
+      period,
+      userType,
+      status,
+      updatedAt: new Date().toISOString(),
+      updatedBy: auth.user.id,
+    };
+
+    await kv.set(`analytics:campaign:${campaignId}`, updated);
+    return c.json(updated);
+  } catch (error) {
+    console.log(`Admin analytics campaign update error: ${error}`);
+    return c.json({ error: 'Error updating analytics campaign' }, 500);
+  }
+});
+
+app.delete('/server/admin/analytics/campaigns/:campaignId', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const campaignId = c.req.param('campaignId');
+    const current = await kv.get(`analytics:campaign:${campaignId}`);
+    if (!current) {
+      return c.json({ error: 'Campaign not found' }, 404);
+    }
+
+    await kv.del(`analytics:campaign:${campaignId}`);
+    return c.json({ message: 'Campaign deleted successfully' });
+  } catch (error) {
+    console.log(`Admin analytics campaign delete error: ${error}`);
+    return c.json({ error: 'Error deleting analytics campaign' }, 500);
+  }
+});
+
+app.post('/server/admin/analytics/reset-test-data', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const supabase = getSupabaseClient(true);
+    const { data: activeRows, error: activeSelectError } = await supabase
+      .from('analytics_active_sessions')
+      .select('session_id');
+    if (activeSelectError) {
+      throw new Error(activeSelectError.message);
+    }
+
+    const activeSessionIds = (activeRows || [])
+      .map((item: any) => String(item?.session_id || ''))
+      .filter((sessionId: string) =>
+        sessionId.startsWith('live-') ||
+        sessionId.startsWith('test-') ||
+        sessionId.startsWith('debug-'),
+      );
+
+    if (activeSessionIds.length > 0) {
+      const { error: activeDeleteError } = await supabase
+        .from('analytics_active_sessions')
+        .delete()
+        .in('session_id', activeSessionIds);
+      if (activeDeleteError) {
+        throw new Error(activeDeleteError.message);
+      }
+    }
+
+    const { data: eventRows, error: eventSelectError } = await supabase
+      .from('analytics_events')
+      .select('id, session_id');
+    if (eventSelectError) {
+      throw new Error(eventSelectError.message);
+    }
+
+    const testEventIds = (eventRows || [])
+      .filter((item: any) => {
+        const sessionId = String(item?.session_id || '');
+        return (
+          sessionId.startsWith('live-') ||
+          sessionId.startsWith('test-') ||
+          sessionId.startsWith('debug-')
+        );
+      })
+      .map((item: any) => item.id);
+
+    if (testEventIds.length > 0) {
+      const { error: eventDeleteError } = await supabase
+        .from('analytics_events')
+        .delete()
+        .in('id', testEventIds);
+      if (eventDeleteError) {
+        throw new Error(eventDeleteError.message);
+      }
+    }
+
+    const snapshot = await syncConcurrentSessions();
+    return c.json({
+      message: 'Test analytics data cleaned',
+      removedActiveSessions: activeSessionIds.length,
+      removedEvents: testEventIds.length,
+      activeSessions: snapshot.activeSessions,
+      concurrentSessions: snapshot.concurrentSessions,
+    });
+  } catch (error) {
+    console.log(`Admin analytics cleanup error: ${error}`);
+    return c.json({ error: 'Error cleaning test analytics data' }, 500);
+  }
+});
+
+app.post('/server/admin/analytics/reset-active-sessions', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const supabase = getSupabaseClient(true);
+    const { count, error: countError } = await supabase
+      .from('analytics_active_sessions')
+      .select('session_id', { count: 'exact', head: true });
+    if (countError) {
+      throw new Error(countError.message);
+    }
+
+    const { data, error } = await supabase.rpc('analytics_close_all_sessions_tx');
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return c.json({
+      message: 'All active sessions reset',
+      removedActiveSessions: Number(count || 0),
+      activeSessions: Number(data?.active_sessions || 0),
+      concurrentSessions: Number(data?.concurrent_sessions || 0),
+    });
+  } catch (error) {
+    console.log(`Admin analytics reset active sessions error: ${error}`);
+    return c.json({ error: 'Error resetting active sessions' }, 500);
+  }
+});
+
+app.get('/server/admin/analytics/sessions/active', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    await syncConcurrentSessions();
+    const supabase = getSupabaseClient(true);
+    const { data, error } = await supabase
+      .from('analytics_active_sessions')
+      .select('session_id, user_type, started_at, last_seen_at')
+      .order('last_seen_at', { ascending: false });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    const now = Date.now();
+    const sessions: any[] = [];
+
+    for (const item of (data || [])) {
+      const sessionId = String(item?.session_id || '');
+      const startedAt = item?.started_at || null;
+      const lastSeenAt = item?.last_seen_at || startedAt;
+      const lastSeenTime = new Date(String(lastSeenAt || '')).getTime();
+      const ageSeconds = Number.isFinite(lastSeenTime)
+        ? Math.max(0, Math.floor((now - lastSeenTime) / 1000))
+        : null;
+
+      sessions.push({
+        sessionId,
+        userType: item?.user_type || 'unknown',
+        startedAt,
+        lastSeenAt,
+        ageSeconds,
+      });
+    }
+
+    const snapshot = await syncConcurrentSessions();
+    return c.json({
+      activeSessions: snapshot.activeSessions,
+      concurrentSessions: snapshot.concurrentSessions,
+      peakConcurrentSessions: snapshot.peakConcurrentSessions,
+      sessions,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.log(`Admin analytics active sessions error: ${error}`);
+    return c.json({ error: 'Error getting active sessions' }, 500);
+  }
+});
+
+app.delete('/server/admin/analytics/sessions/:sessionId', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const sessionId = c.req.param('sessionId');
+    const supabase = getSupabaseClient(true);
+    const { data: current, error: currentError } = await supabase
+      .from('analytics_active_sessions')
+      .select('session_id')
+      .eq('session_id', sessionId)
+      .maybeSingle();
+    if (currentError) {
+      throw new Error(currentError.message);
+    }
+
+    if (!current) {
+      return c.json({ error: 'Session not found' }, 404);
+    }
+
+    const { data, error } = await supabase.rpc('analytics_close_session_tx', {
+      p_session_id: sessionId,
+    });
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return c.json({
+      message: 'Session closed',
+      sessionId,
+      activeSessions: Number(data?.active_sessions || 0),
+      concurrentSessions: Number(data?.concurrent_sessions || 0),
+    });
+  } catch (error) {
+    console.log(`Admin analytics close session error: ${error}`);
+    return c.json({ error: 'Error closing session' }, 500);
+  }
+});
+
+app.post('/server/admin/analytics/sessions/close-all', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const supabase = getSupabaseClient(true);
+    const { count, error: countError } = await supabase
+      .from('analytics_active_sessions')
+      .select('session_id', { count: 'exact', head: true });
+    if (countError) {
+      throw new Error(countError.message);
+    }
+
+    const { data, error } = await supabase.rpc('analytics_close_all_sessions_tx');
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return c.json({
+      message: 'All active sessions closed',
+      removedSessions: Number(count || 0),
+      activeSessions: Number(data?.active_sessions || 0),
+      concurrentSessions: Number(data?.concurrent_sessions || 0),
+    });
+  } catch (error) {
+    console.log(`Admin analytics close all sessions error: ${error}`);
+    return c.json({ error: 'Error closing all sessions' }, 500);
   }
 });
 
@@ -1038,6 +2444,12 @@ app.get("/server/stats/:userId", async (c) => {
     }
     
     const userId = c.req.param('userId');
+
+    // Users can only read their own stats.
+    if (user.id !== userId) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
     const stats = await kv.get(`stats:${userId}`);
     
     if (!stats) {
@@ -1124,5 +2536,6 @@ app.post("/server/upload", async (c) => {
 
 // Initialize storage on startup
 initStorage();
+ensureAdminUser();
 
 Deno.serve(app.fetch);

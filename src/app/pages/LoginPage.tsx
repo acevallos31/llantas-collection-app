@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
+import { authAPI } from '../services/api';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -30,8 +31,15 @@ export default function LoginPage() {
     
     try {
       await signin(loginEmail, loginPassword);
+      const currentUser = authAPI.getCurrentUser();
       toast.success('¡Bienvenido de nuevo!');
-      navigate('/home');
+      navigate(
+        currentUser?.type === 'admin'
+          ? '/admin'
+          : currentUser?.type === 'collector'
+            ? '/collector'
+            : '/home',
+      );
     } catch (err: any) {
       toast.error(err.message || 'Error al iniciar sesión');
     }
@@ -49,8 +57,15 @@ export default function LoginPage() {
         phone: regPhone,
         type: userType,
       });
+      const currentUser = authAPI.getCurrentUser();
       toast.success('¡Cuenta creada exitosamente!');
-      navigate('/home');
+      navigate(
+        currentUser?.type === 'admin'
+          ? '/admin'
+          : currentUser?.type === 'collector'
+            ? '/collector'
+            : '/home',
+      );
     } catch (err: any) {
       toast.error(err.message || 'Error al registrarse');
     }
@@ -155,7 +170,7 @@ export default function LoginPage() {
                     <Input
                       id="phone"
                       type="tel"
-                      placeholder="+57 300 123 4567"
+                      placeholder="+504 9988-1122"
                       className="pl-10"
                       value={regPhone}
                       onChange={(e) => setRegPhone(e.target.value)}

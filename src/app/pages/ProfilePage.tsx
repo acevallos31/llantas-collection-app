@@ -16,12 +16,13 @@ import {
   Package,
   Leaf,
   Edit,
-  Loader2
+  Loader2,
+  LogOut
 } from 'lucide-react';
 
 export default function ProfilePage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, signout } = useAuth();
   const [stats, setStats] = useState({
     totalCollections: 0,
     totalTires: 0,
@@ -48,6 +49,11 @@ export default function ProfilePage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSignOut = async () => {
+    await signout();
+    navigate('/');
   };
 
   if (!user || loading) {
@@ -119,6 +125,17 @@ export default function ProfilePage() {
                 <span className="text-gray-700">{user.address}</span>
               </div>
             )}
+          </div>
+
+          <div className="mt-6 pt-4 border-t border-gray-100">
+            <Button
+              variant="destructive"
+              className="w-full"
+              onClick={handleSignOut}
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Cerrar sesion
+            </Button>
           </div>
         </Card>
 

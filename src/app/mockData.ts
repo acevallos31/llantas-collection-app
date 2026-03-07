@@ -5,7 +5,7 @@ export interface User {
   name: string;
   email: string;
   phone: string;
-  type: 'generator' | 'collector';
+  type: 'generator' | 'collector' | 'admin';
   points: number;
   level: string;
   avatar?: string;
@@ -53,11 +53,11 @@ export const mockUser: User = {
   id: '1',
   name: 'Juan Pérez',
   email: 'juan.perez@example.com',
-  phone: '+57 300 123 4567',
+  phone: '+504 9988-1122',
   type: 'generator',
   points: 450,
   level: 'Eco Warrior',
-  address: 'Calle 45 #23-10, Bogotá',
+  address: 'Colonia Trejo, San Pedro Sula',
 };
 
 export const mockCollections: Collection[] = [
@@ -67,8 +67,8 @@ export const mockCollections: Collection[] = [
     tireCount: 4,
     tireType: 'Automóvil',
     status: 'completed',
-    address: 'Calle 45 #23-10, Bogotá',
-    coordinates: { lat: 4.6533, lng: -74.0836 },
+    address: 'Boulevard del Norte, San Pedro Sula',
+    coordinates: { lat: 15.5209, lng: -88.0422 },
     scheduledDate: '2026-02-20',
     completedDate: '2026-02-20',
     points: 120,
@@ -80,8 +80,8 @@ export const mockCollections: Collection[] = [
     tireCount: 2,
     tireType: 'Motocicleta',
     status: 'in-progress',
-    address: 'Carrera 15 #32-40, Bogotá',
-    coordinates: { lat: 4.6497, lng: -74.0628 },
+    address: 'Colonia Universidad, San Pedro Sula',
+    coordinates: { lat: 15.5012, lng: -88.0381 },
     scheduledDate: '2026-02-28',
     points: 60,
     description: 'Llantas de moto 150cc',
@@ -92,8 +92,8 @@ export const mockCollections: Collection[] = [
     tireCount: 8,
     tireType: 'Camión',
     status: 'pending',
-    address: 'Avenida 68 #75-80, Bogotá',
-    coordinates: { lat: 4.6976, lng: -74.0708 },
+    address: 'Colonia Satelite, San Pedro Sula',
+    coordinates: { lat: 15.4928, lng: -88.0125 },
     scheduledDate: '2026-03-05',
     points: 240,
     description: 'Llantas de camión de carga',
@@ -104,46 +104,46 @@ export const mockCollectionPoints: CollectionPoint[] = [
   {
     id: '1',
     name: 'Centro de Acopio Norte',
-    address: 'Calle 170 #15-20, Bogotá',
-    coordinates: { lat: 4.7534, lng: -74.0426 },
+    address: 'Boulevard del Este, San Pedro Sula',
+    coordinates: { lat: 15.5123, lng: -88.0018 },
     capacity: 1000,
     currentLoad: 650,
     acceptedTypes: ['Automóvil', 'Motocicleta', 'Camión', 'Bicicleta'],
     hours: 'Lun-Sab: 8:00 AM - 6:00 PM',
-    phone: '+57 601 234 5678',
+    phone: '+504 2550-1200',
   },
   {
     id: '2',
     name: 'Centro de Acopio Sur',
-    address: 'Autopista Sur #45-67, Bogotá',
-    coordinates: { lat: 4.5709, lng: -74.1274 },
+    address: 'Salida a Choloma, San Pedro Sula',
+    coordinates: { lat: 15.4308, lng: -88.0362 },
     capacity: 800,
     currentLoad: 420,
     acceptedTypes: ['Automóvil', 'Motocicleta', 'Camión'],
     hours: 'Lun-Vie: 7:00 AM - 5:00 PM',
-    phone: '+57 601 345 6789',
+    phone: '+504 2550-1300',
   },
   {
     id: '3',
-    name: 'Punto Verde Chapinero',
-    address: 'Carrera 13 #53-40, Bogotá',
-    coordinates: { lat: 4.6485, lng: -74.0625 },
+    name: 'Punto Verde Rivera Hernandez',
+    address: 'Colonia Moderna, San Pedro Sula',
+    coordinates: { lat: 15.5065, lng: -88.0248 },
     capacity: 500,
     currentLoad: 180,
     acceptedTypes: ['Automóvil', 'Motocicleta', 'Bicicleta'],
     hours: 'Lun-Sab: 9:00 AM - 7:00 PM',
-    phone: '+57 601 456 7890',
+    phone: '+504 2550-1400',
   },
   {
     id: '4',
-    name: 'EcoLlantas Suba',
-    address: 'Calle 145 #91-19, Bogotá',
-    coordinates: { lat: 4.7355, lng: -74.0909 },
+    name: 'EcoLlantas Cofradia',
+    address: 'Colonia Figueroa, San Pedro Sula',
+    coordinates: { lat: 15.4986, lng: -88.0327 },
     capacity: 600,
     currentLoad: 380,
     acceptedTypes: ['Automóvil', 'Motocicleta', 'Camión'],
     hours: 'Lun-Vie: 8:00 AM - 6:00 PM, Sáb: 9:00 AM - 2:00 PM',
-    phone: '+57 601 567 8901',
+    phone: '+504 2550-1500',
   },
 ];
 

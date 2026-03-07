@@ -11,6 +11,24 @@ El backend de EcolLantApp ha sido implementado exitosamente con:
 - ✅ **CORS habilitado** - Frontend puede comunicarse con el backend
 - ✅ **Capa gratuita** - Todo optimizado para el tier gratuito de Supabase
 
+## 🔐 ACID Real (Estado)
+
+### Ya migrado a ACID transaccional
+- ✅ Analítica y sesiones activas ahora usan tablas SQL en Postgres (no KV) con funciones `rpc` transaccionales.
+- ✅ Operaciones críticas de analítica (`visit`, `load`, `session start/ping/end`, `close one/all`) se ejecutan en funciones PL/pgSQL con consistencia transaccional.
+- ✅ El mismo SQL también incluye la base relacional de todo el dominio (usuarios, stats, colecciones, puntos, recompensas, redenciones, certificados, recibos y campañas) y backfill idempotente desde KV.
+
+### Migración obligatoria antes de desplegar backend
+Ejecuta el archivo:
+
+`supabase/migrations/20260307_analytics_acid.sql`
+
+Opciones:
+1. Supabase Dashboard -> SQL Editor -> pegar y ejecutar.
+2. Supabase CLI migrations (si usas flujo local de migraciones).
+
+Si no ejecutas esta migración, las rutas de analítica del backend devolverán error por tablas/funciones inexistentes.
+
 ## 🗂️ Estructura de Datos en KV Store
 
 ```

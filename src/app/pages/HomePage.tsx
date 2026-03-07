@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MapPin, Package, TrendingUp, Plus, Navigation, Filter, Loader2 } from 'lucide-react';
+import { MapPin, Package, TrendingUp, Plus, Filter, Loader2 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -7,6 +7,36 @@ import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { pointsAPI, collectionsAPI, statsAPI } from '../services/api';
 import type { CollectionPoint, Collection } from '../mockData';
+import CollectionMap from '../components/CollectionMap';
+
+const SPS_DEFAULT_COORDINATES = { lat: 15.5042, lng: -88.0250 };
+
+const isLikelyLegacyCoordinate = (coordinates?: { lat: number; lng: number }) => {
+  if (!coordinates) return true;
+  const { lat, lng } = coordinates;
+  // Honduras bounds approximation.
+  return lat < 13 || lat > 17.7 || lng < -90 || lng > -82;
+};
+
+const calculateDistanceKm = (
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number },
+) => {
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+
+  const latDiff = toRadians(to.lat - from.lat);
+  const lngDiff = toRadians(to.lng - from.lng);
+  const fromLat = toRadians(from.lat);
+  const toLat = toRadians(to.lat);
+
+  const a =
+    Math.sin(latDiff / 2) * Math.sin(latDiff / 2) +
+    Math.cos(fromLat) * Math.cos(toLat) * Math.sin(lngDiff / 2) * Math.sin(lngDiff / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
+};
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -24,10 +54,50 @@ export default function HomePage() {
     recycledWeight: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
     loadData();
   }, [user]);
+
+  useEffect(() => {
+    if (user?.type === 'collector') {
+      navigate('/collector', { replace: true });
+    }
+    if (user?.type === 'admin') {
+      navigate('/admin', { replace: true });
+    }
+  }, [user, navigate]);
+
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+      },
+      () => {
+        setUserLocation(null);
+      },
+      { timeout: 8000 },
+    );
+  }, []);
+
+  const openDirections = (lat: number, lng: number) => {
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const nearbyPoints = [...collectionPoints].sort((a, b) => {
+    if (!userLocation) return 0;
+
+    const distanceA = calculateDistanceKm(userLocation, a.coordinates);
+    const distanceB = calculateDistanceKm(userLocation, b.coordinates);
+    return distanceA - distanceB;
+  });
 
   const loadData = async () => {
     try {
@@ -39,7 +109,35 @@ export default function HomePage() {
       
       // Load user collections
       if (user) {
-        const userCollections = await collectionsAPI.getAll();
+        let userCollections = await collectionsAPI.getAll();
+
+        // One-time migration for legacy coordinates (old demo data in Colombia).
+        const migrationKey = `ecolant_coords_migrated_${user.id}`;
+        const alreadyMigrated = localStorage.getItem(migrationKey) === '1';
+        if (!alreadyMigrated) {
+          const legacyCollections = (userCollections || []).filter((collection) =>
+            isLikelyLegacyCoordinate(collection.coordinates),
+          );
+
+          if (legacyCollections.length > 0) {
+            await Promise.all(
+              legacyCollections.map((collection) =>
+                collectionsAPI.update(collection.id, {
+                  coordinates: SPS_DEFAULT_COORDINATES,
+                  address:
+                    collection.address && collection.address.trim().length > 0
+                      ? collection.address
+                      : 'San Pedro Sula, Honduras',
+                }),
+              ),
+            );
+
+            userCollections = await collectionsAPI.getAll();
+          }
+
+          localStorage.setItem(migrationKey, '1');
+        }
+
         setCollections(userCollections || []);
         
         // Load user stats
@@ -160,37 +258,12 @@ export default function HomePage() {
           </div>
         ) : viewMode === 'map' ? (
           <>
-            {/* Map Placeholder */}
-            <div className="relative bg-gray-200 rounded-2xl h-64 mb-6 overflow-hidden">
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="text-center">
-                  <MapPin className="w-12 h-12 mx-auto text-green-600 mb-2" />
-                  <p className="text-gray-600 text-sm">Mapa de puntos de recolección</p>
-                  <p className="text-gray-500 text-xs mt-1">
-                    {collectionPoints.length} puntos cercanos
-                  </p>
-                </div>
-              </div>
-              
-              {/* Simulate map pins */}
-              <div className="absolute top-1/4 left-1/3 w-8 h-8 bg-green-600 rounded-full flex items-center justify-center shadow-lg animate-pulse">
-                <MapPin className="w-5 h-5 text-white" />
-              </div>
-              <div className="absolute top-1/2 left-1/2 w-8 h-8 bg-green-600 rounded-full flex items-center justify-center shadow-lg animate-pulse">
-                <MapPin className="w-5 h-5 text-white" />
-              </div>
-              <div className="absolute top-2/3 left-1/4 w-8 h-8 bg-green-600 rounded-full flex items-center justify-center shadow-lg animate-pulse">
-                <MapPin className="w-5 h-5 text-white" />
-              </div>
-              
-              {/* Center Button */}
-              <Button
-                size="icon"
-                className="absolute bottom-4 right-4 bg-white text-green-600 hover:bg-gray-100 shadow-lg rounded-full"
-              >
-                <Navigation className="w-4 h-4" />
-              </Button>
-            </div>
+            <CollectionMap
+              points={collectionPoints}
+              collections={collections.filter((collection) => collection.status !== 'completed')}
+              userLocation={userLocation}
+              heightClassName="h-[420px] md:h-[500px] mb-6"
+            />
 
             {/* Nearby Points */}
             <div className="mb-4">
@@ -199,10 +272,17 @@ export default function HomePage() {
                 <p className="text-gray-500 text-center py-8">No hay puntos de recolección disponibles</p>
               ) : (
                 <div className="space-y-3">
-                  {collectionPoints.slice(0, 3).map((point) => {
+                  {nearbyPoints.slice(0, 3).map((point) => {
                     const loadPercentage = (point.currentLoad / point.capacity) * 100;
+                    const distanceKm = userLocation
+                      ? calculateDistanceKm(userLocation, point.coordinates)
+                      : null;
                     return (
-                      <Card key={point.id} className="p-4 hover:shadow-lg transition-shadow cursor-pointer">
+                      <Card
+                        key={point.id}
+                        className="p-4 hover:shadow-lg transition-shadow cursor-pointer"
+                        onClick={() => openDirections(point.coordinates.lat, point.coordinates.lng)}
+                      >
                         <div className="flex gap-3">
                           <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
                             <MapPin className="w-6 h-6 text-green-600" />
@@ -220,8 +300,12 @@ export default function HomePage() {
                             </div>
                           </div>
                           <div className="text-right flex-shrink-0">
-                            <div className="text-sm font-semibold text-green-600">2.3 km</div>
-                            <div className="text-xs text-gray-500">15 min</div>
+                            <div className="text-sm font-semibold text-green-600">
+                              {distanceKm !== null ? `${distanceKm.toFixed(1)} km` : 'Ruta'}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {distanceKm !== null ? `${Math.max(5, Math.round(distanceKm * 4))} min` : 'Abrir mapa'}
+                            </div>
                           </div>
                         </div>
                       </Card>

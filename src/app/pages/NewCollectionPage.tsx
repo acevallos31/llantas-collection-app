@@ -28,6 +28,7 @@ export default function NewCollectionPage() {
   const [tireCount, setTireCount] = useState(1);
   const [selectedType, setSelectedType] = useState('Automóvil');
   const [address, setAddress] = useState('');
+  const [coordinates, setCoordinates] = useState({ lat: 15.5042, lng: -88.0250 });
   const [scheduledDate, setScheduledDate] = useState('');
   const [description, setDescription] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
@@ -54,9 +55,26 @@ export default function NewCollectionPage() {
     'Motocicleta',
     'Camión',
     'Bicicleta',
-    'Tractomula',
+    'Autobus',
     'Otro'
   ];
+
+  const reverseGeocode = async (lat: number, lng: number) => {
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=es`,
+      );
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const result = await response.json();
+      return result.display_name as string | undefined;
+    } catch {
+      return null;
+    }
+  };
 
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -99,7 +117,7 @@ export default function NewCollectionPage() {
         tireCount,
         tireType: selectedType,
         address,
-        coordinates: { lat: 4.6097, lng: -74.0817 }, // Default Bogotá coordinates
+        coordinates,
         scheduledDate,
         description: description || undefined,
         photos: photos.length > 0 ? photos : undefined,
@@ -209,7 +227,7 @@ export default function NewCollectionPage() {
             <MapPin className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
             <Input
               id="address"
-              placeholder="Calle 45 #23-10, Bogotá"
+              placeholder="Colonia Universidad, San Pedro Sula"
               className="pl-10 h-12"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
@@ -224,14 +242,27 @@ export default function NewCollectionPage() {
             onClick={() => {
               if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(
-                  (position) => {
+                  async (position) => {
                     toast.success('Ubicación obtenida');
-                    // In a real app, you would reverse geocode these coordinates
-                    setAddress(`Lat: ${position.coords.latitude.toFixed(4)}, Lng: ${position.coords.longitude.toFixed(4)}`);
+                    const currentCoordinates = {
+                      lat: Number(position.coords.latitude.toFixed(6)),
+                      lng: Number(position.coords.longitude.toFixed(6)),
+                    };
+                    setCoordinates(currentCoordinates);
+
+                    const reverseAddress = await reverseGeocode(
+                      currentCoordinates.lat,
+                      currentCoordinates.lng,
+                    );
+
+                    setAddress(
+                      reverseAddress || `Lat: ${currentCoordinates.lat.toFixed(4)}, Lng: ${currentCoordinates.lng.toFixed(4)}`,
+                    );
                   },
-                  (error) => {
+                  () => {
                     toast.error('No se pudo obtener la ubicación');
-                  }
+                  },
+                  { timeout: 10000 },
                 );
               } else {
                 toast.error('Geolocalización no soportada');
@@ -301,6 +332,9 @@ export default function NewCollectionPage() {
           </div>
           <p className="text-xs text-gray-500 mt-2">
             Las fotos ayudan a validar tu recolección más rápido
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Coordenadas actuales: {coordinates.lat.toFixed(4)}, {coordinates.lng.toFixed(4)}
           </p>
         </Card>
 

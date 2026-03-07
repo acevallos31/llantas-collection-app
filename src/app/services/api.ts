@@ -29,6 +29,37 @@ console.log('🔑 Project ID:', projectId);
 const ACCESS_TOKEN_KEY = 'ecolant_access_token';
 const USER_KEY = 'ecolant_user';
 
+const getAnalyticsUserType = () => {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    if (!raw) return 'guest';
+    const parsed = JSON.parse(raw);
+    return parsed?.type || 'guest';
+  } catch {
+    return 'guest';
+  }
+};
+
+const parseResponseBody = async (response: Response): Promise<any> => {
+  const rawBody = await response.text();
+  if (!rawBody) return null;
+
+  try {
+    return JSON.parse(rawBody);
+  } catch {
+    return { rawBody };
+  }
+};
+
+const resolveErrorMessage = (payload: any, fallbackMessage: string) => {
+  if (!payload) return fallbackMessage;
+  if (typeof payload === 'string') return payload;
+  if (typeof payload.error === 'string') return payload.error;
+  if (typeof payload.message === 'string') return payload.message;
+  if (typeof payload.rawBody === 'string') return payload.rawBody;
+  return fallbackMessage;
+};
+
 // Helper to get auth headers
 const getAuthHeaders = (includeAuth = true) => {
   const headers: HeadersInit = {
@@ -171,7 +202,14 @@ export const authAPI = {
   
   getCurrentUser(): User | null {
     const userStr = localStorage.getItem(USER_KEY);
-    return userStr ? JSON.parse(userStr) : null;
+    if (!userStr) return null;
+
+    try {
+      return JSON.parse(userStr);
+    } catch {
+      localStorage.removeItem(USER_KEY);
+      return null;
+    }
   },
   
   isAuthenticated(): boolean {
@@ -361,6 +399,73 @@ export const pointsAPI = {
     
     return result;
   },
+
+  async create(data: {
+    name: string;
+    address: string;
+    coordinates: { lat: number; lng: number };
+    capacity: number;
+    currentLoad?: number;
+    acceptedTypes?: string[];
+    hours?: string;
+    phone?: string;
+  }): Promise<CollectionPoint> {
+    const response = await fetch(`${API_BASE_URL}/points`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(data),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Error al crear centro de acopio');
+    }
+
+    return result;
+  },
+
+  async update(
+    pointId: string,
+    updates: Partial<CollectionPoint>,
+  ): Promise<CollectionPoint> {
+    const response = await fetch(`${API_BASE_URL}/points/${pointId}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(updates),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || 'Error al actualizar centro de acopio');
+    }
+
+    return result;
+  },
+
+  async remove(pointId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/points/${pointId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(true),
+    });
+
+    if (!response.ok) {
+      const rawBody = await response.text();
+      let errorMessage = 'Error al eliminar centro de acopio';
+
+      if (rawBody) {
+        try {
+          const parsed = JSON.parse(rawBody);
+          errorMessage = parsed?.error || parsed?.message || errorMessage;
+        } catch {
+          errorMessage = rawBody;
+        }
+      }
+
+      throw new Error(errorMessage);
+    }
+  },
   
   async seed(): Promise<void> {
     const response = await fetch(`${API_BASE_URL}/points/seed`, {
@@ -371,6 +476,403 @@ export const pointsAPI = {
     if (!response.ok) {
       const result = await response.json();
       throw new Error(result.error || 'Error al inicializar puntos');
+    }
+  },
+};
+
+export const adminAPI = {
+  async getUsers(): Promise<any[]> {
+    const response = await fetch(`${API_BASE_URL}/admin/users`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener usuarios'));
+    }
+    return result;
+  },
+
+  async updateUserRole(userId: string, type: 'generator' | 'collector' | 'admin') {
+    const response = await fetch(`${API_BASE_URL}/admin/users/${userId}/role`, {
+      method: 'PUT',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({ type }),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al actualizar rol de usuario'));
+    }
+    return result;
+  },
+
+  async createUser(data: {
+    email: string;
+    password: string;
+    name: string;
+    phone?: string;
+    type: 'generator' | 'collector' | 'admin';
+    address?: string;
+  }) {
+    const response = await fetch(`${API_BASE_URL}/admin/users`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(data),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al crear usuario'));
+    }
+    return result;
+  },
+
+  async updateUser(
+    userId: string,
+    updates: {
+      name: string;
+      email: string;
+      phone?: string;
+      address?: string;
+      type: 'generator' | 'collector' | 'admin';
+    },
+  ) {
+    const response = await fetch(`${API_BASE_URL}/admin/users/${userId}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(updates),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al actualizar usuario'));
+    }
+    return result;
+  },
+
+  async resetUserPassword(userId: string, newPassword: string) {
+    const response = await fetch(`${API_BASE_URL}/admin/users/${userId}/reset-password`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({ newPassword }),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al resetear contrasena'));
+    }
+    return result;
+  },
+
+  async deleteUser(userId: string) {
+    const response = await fetch(`${API_BASE_URL}/admin/users/${userId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al eliminar usuario'));
+    }
+    return result;
+  },
+
+  async getSettings(): Promise<any> {
+    const response = await fetch(`${API_BASE_URL}/admin/settings`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener configuracion'));
+    }
+    return result;
+  },
+
+  async updateSettings(updates: Record<string, any>): Promise<any> {
+    const response = await fetch(`${API_BASE_URL}/admin/settings`, {
+      method: 'PUT',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(updates),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al actualizar configuracion'));
+    }
+    return result;
+  },
+
+  async getReportsOverview(): Promise<any> {
+    const response = await fetch(`${API_BASE_URL}/admin/reports/overview`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener reportes'));
+    }
+    return result;
+  },
+
+  async getAnalytics(): Promise<{
+    totalVisits: number;
+    totalSessionDurationMs: number;
+    sessionCount: number;
+    averageSessionDurationMs: number;
+    totalAppLoadTimeMs: number;
+    appLoadSampleCount: number;
+    averageAppLoadTimeMs: number;
+    activeSessions: number;
+    concurrentSessions: number;
+    peakConcurrentSessions: number;
+    updatedAt: string | null;
+  }> {
+    const response = await fetch(`${API_BASE_URL}/admin/analytics`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener analitica'));
+    }
+    return result;
+  },
+
+  async getAnalyticsReport(filters: {
+    from?: string;
+    to?: string;
+    period?: 'daily' | 'weekly' | 'monthly';
+    userType?: 'all' | 'generator' | 'collector' | 'admin' | 'guest';
+  }) {
+    const params = new URLSearchParams();
+    if (filters.from) params.set('from', filters.from);
+    if (filters.to) params.set('to', filters.to);
+    if (filters.period) params.set('period', filters.period);
+    if (filters.userType) params.set('userType', filters.userType);
+
+    const response = await fetch(`${API_BASE_URL}/admin/analytics/report?${params.toString()}`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener reporte de analitica'));
+    }
+    return result;
+  },
+
+  async getAnalyticsCampaigns() {
+    const response = await fetch(`${API_BASE_URL}/admin/analytics/campaigns`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener campanas'));
+    }
+    return result;
+  },
+
+  async createAnalyticsCampaign(payload: {
+    name: string;
+    startsAt: string;
+    endsAt?: string;
+    period?: 'daily' | 'weekly' | 'monthly';
+    userType?: 'all' | 'generator' | 'collector' | 'admin' | 'guest';
+  }) {
+    const response = await fetch(`${API_BASE_URL}/admin/analytics/campaigns`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(payload),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al crear campana'));
+    }
+    return result;
+  },
+
+  async updateAnalyticsCampaign(
+    campaignId: string,
+    payload: {
+      name: string;
+      startsAt: string;
+      endsAt?: string;
+      period?: 'daily' | 'weekly' | 'monthly';
+      userType?: 'all' | 'generator' | 'collector' | 'admin' | 'guest';
+    },
+  ) {
+    const response = await fetch(`${API_BASE_URL}/admin/analytics/campaigns/${campaignId}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(payload),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al actualizar campana'));
+    }
+    return result;
+  },
+
+  async deleteAnalyticsCampaign(campaignId: string) {
+    const response = await fetch(`${API_BASE_URL}/admin/analytics/campaigns/${campaignId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al eliminar campana'));
+    }
+    return result;
+  },
+
+  async resetAnalyticsTestData() {
+    const response = await fetch(`${API_BASE_URL}/admin/analytics/reset-test-data`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al limpiar datos de prueba'));
+    }
+    return result;
+  },
+
+  async resetAnalyticsActiveSessions() {
+    const response = await fetch(`${API_BASE_URL}/admin/analytics/reset-active-sessions`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al resetear sesiones activas'));
+    }
+    return result;
+  },
+
+  async getActiveAnalyticsSessions() {
+    const response = await fetch(`${API_BASE_URL}/admin/analytics/sessions/active`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener sesiones activas'));
+    }
+    return result;
+  },
+
+  async closeAnalyticsSession(sessionId: string) {
+    const response = await fetch(`${API_BASE_URL}/admin/analytics/sessions/${sessionId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al cerrar sesion activa'));
+    }
+    return result;
+  },
+
+  async closeAllAnalyticsSessions() {
+    const response = await fetch(`${API_BASE_URL}/admin/analytics/sessions/close-all`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al cerrar todas las sesiones activas'));
+    }
+    return result;
+  },
+};
+
+export const analyticsAPI = {
+  async trackVisit(path: string) {
+    try {
+      await fetch(`${API_BASE_URL}/analytics/visit`, {
+        method: 'POST',
+        headers: getAuthHeaders(false),
+        body: JSON.stringify({ path, userType: getAnalyticsUserType() }),
+      });
+    } catch {
+      // Silently ignore analytics failures in prototype mode.
+    }
+  },
+
+  async trackSession(durationMs: number) {
+    try {
+      await fetch(`${API_BASE_URL}/analytics/session`, {
+        method: 'POST',
+        headers: getAuthHeaders(false),
+        body: JSON.stringify({ durationMs, userType: getAnalyticsUserType() }),
+      });
+    } catch {
+      // Silently ignore analytics failures in prototype mode.
+    }
+  },
+
+  async trackAppLoadTime(loadTimeMs: number) {
+    try {
+      await fetch(`${API_BASE_URL}/analytics/load`, {
+        method: 'POST',
+        headers: getAuthHeaders(false),
+        body: JSON.stringify({ loadTimeMs, userType: getAnalyticsUserType() }),
+      });
+    } catch {
+      // Silently ignore analytics failures in prototype mode.
+    }
+  },
+
+  async startSession(sessionId: string, startedAt: string) {
+    try {
+      await fetch(`${API_BASE_URL}/analytics/session/start`, {
+        method: 'POST',
+        headers: getAuthHeaders(false),
+        body: JSON.stringify({ sessionId, startedAt, userType: getAnalyticsUserType() }),
+      });
+    } catch {
+      // Silently ignore analytics failures in prototype mode.
+    }
+  },
+
+  async endSession(sessionId: string, durationMs: number) {
+    try {
+      await fetch(`${API_BASE_URL}/analytics/session/end`, {
+        method: 'POST',
+        headers: getAuthHeaders(false),
+        body: JSON.stringify({ sessionId, durationMs, userType: getAnalyticsUserType() }),
+      });
+    } catch {
+      // Silently ignore analytics failures in prototype mode.
+    }
+  },
+
+  async pingSession(sessionId: string) {
+    try {
+      await fetch(`${API_BASE_URL}/analytics/session/ping`, {
+        method: 'POST',
+        headers: getAuthHeaders(false),
+        body: JSON.stringify({ sessionId, userType: getAnalyticsUserType() }),
+      });
+    } catch {
+      // Silently ignore analytics failures in prototype mode.
     }
   },
 };
@@ -478,9 +980,24 @@ export const uploadAPI = {
 
 export const initializeApp = async () => {
   try {
-    // Seed collection points if empty
+    // Seed collection points if empty or when legacy demo data is detected.
     const points = await pointsAPI.getAll();
-    if (points.length === 0) {
+    const hasLegacyColombiaData = points.some((point: any) => {
+      const address = String(point?.address || '').toLowerCase();
+      const name = String(point?.name || '').toLowerCase();
+      const phone = String(point?.phone || '').toLowerCase();
+      const lat = Number(point?.coordinates?.lat || 0);
+
+      return (
+        address.includes('bogota') ||
+        name.includes('chapinero') ||
+        name.includes('suba') ||
+        phone.includes('+57') ||
+        lat < 10
+      );
+    });
+
+    if (points.length === 0 || hasLegacyColombiaData) {
       await pointsAPI.seed();
     }
     

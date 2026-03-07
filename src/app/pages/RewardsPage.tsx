@@ -27,6 +27,14 @@ export default function RewardsPage() {
   const [loading, setLoading] = useState(true);
   const [redeeming, setRedeeming] = useState<string | null>(null);
 
+  const levelMilestones = [
+    { name: 'Eco Novato', minPoints: 0 },
+    { name: 'Eco Guardian', minPoints: 50 },
+    { name: 'Eco Warrior', minPoints: 200 },
+    { name: 'Eco Champion', minPoints: 500 },
+    { name: 'Eco Master', minPoints: 1000 },
+  ];
+
   const categories = [
     { id: 'all', label: 'Todas', icon: Gift },
     { id: 'Descuentos', label: 'Descuentos', icon: ShoppingBag },
@@ -86,6 +94,24 @@ export default function RewardsPage() {
     ? rewards 
     : rewards.filter(r => r.category === selectedCategory);
 
+  const currentPoints = user?.points || 0;
+  const currentLevelIndex = Math.max(
+    0,
+    levelMilestones.findIndex((level, index) => {
+      const nextLevel = levelMilestones[index + 1];
+      return currentPoints >= level.minPoints && (!nextLevel || currentPoints < nextLevel.minPoints);
+    }),
+  );
+
+  const currentLevel = levelMilestones[currentLevelIndex];
+  const nextLevel = levelMilestones[currentLevelIndex + 1] || null;
+  const currentLevelFloor = currentLevel?.minPoints || 0;
+  const nextLevelTarget = nextLevel?.minPoints || currentLevelFloor;
+  const pointsIntoLevel = currentPoints - currentLevelFloor;
+  const levelSpan = Math.max(1, nextLevelTarget - currentLevelFloor);
+  const levelProgress = nextLevel ? Math.min((pointsIntoLevel / levelSpan) * 100, 100) : 100;
+  const pointsToNextLevel = nextLevel ? Math.max(nextLevelTarget - currentPoints, 0) : 0;
+
   const getCategoryIcon = (category: string) => {
     const cat = categories.find(c => c.id === category);
     return cat ? cat.icon : Gift;
@@ -114,10 +140,10 @@ export default function RewardsPage() {
           <div className="text-sm text-green-100">Puntos Disponibles</div>
           <div className="mt-4 flex gap-2 justify-center text-xs">
             <div className="bg-white/10 px-3 py-1 rounded-full">
-              🔥 Racha: 5 días
+              Objetivo: +{Math.max(pointsToNextLevel, 0)} pts
             </div>
             <div className="bg-white/10 px-3 py-1 rounded-full">
-              🏆 Nivel {user?.level || 1}
+              Nivel {user?.level || 'Eco Novato'}
             </div>
           </div>
         </Card>
@@ -284,17 +310,19 @@ export default function RewardsPage() {
             <Card className="p-6 mt-4">
               <h3 className="font-bold mb-3">Próximo Nivel</h3>
               <div className="flex items-center gap-3 mb-2">
-                <span className="text-sm text-gray-600">Eco Warrior</span>
+                <span className="text-sm text-gray-600">{currentLevel?.name || 'Eco Novato'}</span>
                 <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
                   <div 
                     className="h-full bg-green-600 rounded-full transition-all" 
-                    style={{ width: '45%' }}
+                    style={{ width: `${levelProgress}%` }}
                   />
                 </div>
-                <span className="text-sm font-semibold text-green-600">Eco Master</span>
+                <span className="text-sm font-semibold text-green-600">{nextLevel?.name || 'Nivel maximo'}</span>
               </div>
               <p className="text-xs text-gray-600 text-center">
-                Necesitas 550 puntos más para alcanzar el siguiente nivel
+                {nextLevel
+                  ? `Necesitas ${pointsToNextLevel} puntos mas para alcanzar ${nextLevel.name}`
+                  : 'Ya alcanzaste el nivel maximo disponible'}
               </p>
             </Card>
 

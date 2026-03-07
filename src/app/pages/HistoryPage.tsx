@@ -7,6 +7,13 @@ import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog';
 import { 
   ChevronLeft, 
   Package, 
@@ -19,14 +26,35 @@ import {
   Loader2,
   Download,
   FileSpreadsheet,
-  Leaf
+  Leaf,
+  Route,
+  LoaderCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
+
+type TraceEvent = {
+  stage: string;
+  note: string;
+  actorType: string;
+  timestamp: string;
+};
+
+type CollectionTrace = {
+  collectionId: string;
+  qrCode: string;
+  currentStage: string;
+  events: TraceEvent[];
+  certificate: {
+    certificateId?: string;
+    destinationType?: string;
+    issuedAt?: string;
+  } | null;
+};
 
 export default function HistoryPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [filter, setFilter] = useState<'all' | 'completed' | 'pending' | 'in-progress'>('all');
+  const [filter, setFilter] = useState<'all' | 'completed' | 'pending' | 'in-progress' | 'cancelled'>('all');
   const [collections, setCollections] = useState<Collection[]>([]);
   const [stats, setStats] = useState({
     totalCollections: 0,
@@ -37,6 +65,10 @@ export default function HistoryPage() {
     recycledWeight: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [traceModalOpen, setTraceModalOpen] = useState(false);
+  const [traceLoading, setTraceLoading] = useState(false);
+  const [selectedTrace, setSelectedTrace] = useState<CollectionTrace | null>(null);
 
   useEffect(() => {
     loadCollections();
@@ -141,6 +173,35 @@ export default function HistoryPage() {
     }
   };
 
+  const handleViewTrace = async (collectionId: string) => {
+    try {
+      setTraceLoading(true);
+      const trace = await collectionsAPI.getTrace(collectionId);
+      setSelectedTrace(trace as CollectionTrace);
+      setTraceModalOpen(true);
+    } catch (error: any) {
+      toast.error(error.message || 'No fue posible cargar la trazabilidad');
+    } finally {
+      setTraceLoading(false);
+    }
+  };
+
+  const handleCancelCollection = async (collection: Collection) => {
+    const shouldCancel = window.confirm('Quieres cancelar esta solicitud de recoleccion?');
+    if (!shouldCancel) return;
+
+    try {
+      setCancellingId(collection.id);
+      await collectionsAPI.update(collection.id, { status: 'cancelled' });
+      toast.success('Solicitud cancelada');
+      await loadCollections();
+    } catch (error: any) {
+      toast.error(error.message || 'No se pudo cancelar la solicitud');
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
   const handleExportReport = () => {
     const headers = [
       'id',
@@ -218,11 +279,12 @@ export default function HistoryPage() {
 
         {/* Filter Tabs */}
         <Tabs defaultValue="all" className="mb-6" onValueChange={(v) => setFilter(v as any)}>
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="all" className="text-xs">Todas</TabsTrigger>
             <TabsTrigger value="completed" className="text-xs">Completadas</TabsTrigger>
             <TabsTrigger value="in-progress" className="text-xs">En Proceso</TabsTrigger>
             <TabsTrigger value="pending" className="text-xs">Pendientes</TabsTrigger>
+            <TabsTrigger value="cancelled" className="text-xs">Canceladas</TabsTrigger>
           </TabsList>
         </Tabs>
 
@@ -309,17 +371,44 @@ export default function HistoryPage() {
                     {/* Action Buttons */}
                     {collection.status === 'pending' && (
                       <div className="mt-4 pt-4 border-t flex gap-2">
-                        <Button variant="outline" size="sm" className="flex-1">
-                          Cancelar
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => handleCancelCollection(collection)}
+                          disabled={cancellingId === collection.id}
+                        >
+                          {cancellingId === collection.id ? (
+                            <>
+                              <LoaderCircle className="w-4 h-4 mr-2 animate-spin" />
+                              Cancelando...
+                            </>
+                          ) : (
+                            'Cancelar'
+                          )}
                         </Button>
-                        <Button size="sm" className="flex-1 bg-green-600 hover:bg-green-700">
-                          Ver Detalles
+                        <Button
+                          size="sm"
+                          className="flex-1 bg-green-600 hover:bg-green-700"
+                          onClick={() => navigate(`/history/${collection.id}`)}
+                        >
+                          <Route className="w-4 h-4 mr-2" />
+                          Ver Detalle
                         </Button>
                       </div>
                     )}
 
                     {collection.status === 'completed' && (
-                      <div className="mt-4 pt-4 border-t">
+                      <div className="mt-4 pt-4 border-t flex gap-2">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="w-full"
+                          onClick={() => navigate(`/history/${collection.id}`)}
+                        >
+                          <Route className="w-4 h-4 mr-2" />
+                          Ver Detalle
+                        </Button>
                         <Button
                           variant="outline"
                           size="sm"
@@ -369,6 +458,50 @@ export default function HistoryPage() {
           </>
         )}
       </div>
+
+      <Dialog open={traceModalOpen} onOpenChange={setTraceModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Trazabilidad de la Recoleccion</DialogTitle>
+            <DialogDescription>
+              Seguimiento desde el registro hasta destino final.
+            </DialogDescription>
+          </DialogHeader>
+
+          {traceLoading ? (
+            <div className="py-8 flex items-center justify-center">
+              <Loader2 className="w-6 h-6 animate-spin text-green-600" />
+            </div>
+          ) : selectedTrace ? (
+            <div className="space-y-3 max-h-[50vh] overflow-auto pr-1">
+              <Card className="p-3 bg-green-50 border-green-200">
+                <p className="text-sm"><strong>QR:</strong> {selectedTrace.qrCode || 'N/A'}</p>
+                <p className="text-sm"><strong>Etapa actual:</strong> {selectedTrace.currentStage || 'N/A'}</p>
+                <p className="text-sm"><strong>Certificado:</strong> {selectedTrace.certificate?.certificateId || 'No emitido'}</p>
+              </Card>
+
+              {selectedTrace.events.length === 0 ? (
+                <p className="text-sm text-gray-500">Sin eventos de trazabilidad registrados.</p>
+              ) : (
+                selectedTrace.events.map((event, index) => (
+                  <Card key={`${event.timestamp}-${index}`} className="p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <Badge variant="outline">{event.stage}</Badge>
+                      <span className="text-xs text-gray-500">
+                        {new Date(event.timestamp).toLocaleString('es-CO')}
+                      </span>
+                    </div>
+                    <p className="text-sm mt-2">{event.note}</p>
+                    <p className="text-xs text-gray-500 mt-1">Actor: {event.actorType}</p>
+                  </Card>
+                ))
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">No hay datos de trazabilidad para mostrar.</p>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
