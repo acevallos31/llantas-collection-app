@@ -116,6 +116,12 @@ export default function HomePage() {
     if (isScreenShareActive) return;
 
     try {
+      // Validar soporte de getDisplayMedia
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        toast.error('Tu navegador no soporta compartir pantalla. Intenta desde un computador con Chrome o Firefox.');
+        return;
+      }
+
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
       const pc = new RTCPeerConnection();
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
@@ -185,7 +191,13 @@ export default function HomePage() {
       }, 2500);
     } catch (error) {
       console.error('Generator WebRTC error:', error);
-      toast.error('No se pudo iniciar el screen-share');
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      
+      if (errorMsg.includes('Permission denied') || errorMsg.includes('NotAllowedError')) {
+        toast.error('Debes permitir compartir pantalla para usar asistencia remota');
+      } else {
+        toast.error('No se pudo iniciar el screen-share. Verifica que tu navegador lo soporte.');
+      }
       await stopScreenShare();
     }
   };
@@ -195,6 +207,15 @@ export default function HomePage() {
     if (!sessionId) {
       toast.error('No se encontro la sesion activa');
       return;
+    }
+
+    // Advertencia para dispositivos móviles
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) {
+      const proceed = window.confirm(
+        'ADVERTENCIA: Compartir pantalla desde dispositivos móviles puede no funcionar correctamente. Se recomienda usar un computador.\n\n¿Deseas continuar de todas formas?'
+      );
+      if (!proceed) return;
     }
 
     const confirmed = window.confirm('Deseas solicitar asistencia remota al administrador?');
