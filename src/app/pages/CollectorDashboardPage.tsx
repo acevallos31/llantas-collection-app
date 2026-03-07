@@ -176,13 +176,25 @@ export default function CollectorDashboardPage() {
       return;
     }
 
-    // Advertencia para dispositivos móviles
+    // Ofrecer alternativas para dispositivos móviles
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     if (isMobile) {
-      const proceed = window.confirm(
-        'ADVERTENCIA: Compartir pantalla desde dispositivos móviles puede no funcionar correctamente. Se recomienda usar un computador.\n\n¿Deseas continuar de todas formas?'
+      const shortSessionId = sessionId.substring(0, 8);
+      const useExternal = window.confirm(
+        `📱 ASISTENCIA DESDE MÓVIL\n\n` +
+        `Compartir pantalla no funciona en móviles desde el navegador.\n\n` +
+        `ALTERNATIVAS RECOMENDADAS:\n` +
+        `• Zoom (zoom.us)\n` +
+        `• Google Meet (meet.google.com)\n` +
+        `• WhatsApp/Telegram videollamada\n\n` +
+        `Tu código de sesión: ${shortSessionId}\n\n` +
+        `¿Deseas continuar de todas formas con el navegador?\n` +
+        `(Se recomienda usar una de las apps anteriores)`
       );
-      if (!proceed) return;
+      if (!useExternal) {
+        toast.info(`Tu código de sesión es: ${shortSessionId}`, { duration: 8000 });
+        return;
+      }
     }
 
     const confirmed = window.confirm('Deseas solicitar asistencia remota al administrador?');
