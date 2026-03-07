@@ -28,6 +28,7 @@ console.log('🔑 Project ID:', projectId);
 // Local storage keys
 const ACCESS_TOKEN_KEY = 'ecolant_access_token';
 const USER_KEY = 'ecolant_user';
+export const ANALYTICS_SESSION_ID_KEY = 'ecolant_session_id';
 
 const getAnalyticsUserType = () => {
   try {
@@ -764,7 +765,11 @@ export const adminAPI = {
   },
 
   async getActiveAnalyticsSessions() {
-    const response = await fetch(`${API_BASE_URL}/admin/analytics/sessions/active`, {
+    const currentSessionId = sessionStorage.getItem(ANALYTICS_SESSION_ID_KEY) || '';
+    const query = currentSessionId
+      ? `?currentSessionId=${encodeURIComponent(currentSessionId)}`
+      : '';
+    const response = await fetch(`${API_BASE_URL}/admin/analytics/sessions/active${query}`, {
       method: 'GET',
       headers: getAuthHeaders(true),
     });
@@ -789,10 +794,13 @@ export const adminAPI = {
     return result;
   },
 
-  async closeAllAnalyticsSessions() {
+  async closeAllAnalyticsSessions(excludeSessionId?: string) {
     const response = await fetch(`${API_BASE_URL}/admin/analytics/sessions/close-all`, {
       method: 'POST',
       headers: getAuthHeaders(true),
+      body: JSON.stringify({
+        excludeSessionId: excludeSessionId || null,
+      }),
     });
 
     const result = await parseResponseBody(response);
@@ -810,6 +818,20 @@ export const adminAPI = {
     }
     return result;
   },
+
+  async getAnalyticsSessionActivity(sessionId: string, limit = 25) {
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const response = await fetch(`${API_BASE_URL}/admin/analytics/sessions/${encodeURIComponent(sessionId)}/activity?limit=${safeLimit}`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener actividad de sesion'));
+    }
+    return result;
+  },
 };
 
 export const analyticsAPI = {
@@ -817,7 +839,7 @@ export const analyticsAPI = {
     try {
       await fetch(`${API_BASE_URL}/analytics/visit`, {
         method: 'POST',
-        headers: getAuthHeaders(false),
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ path, sessionId, userType: getAnalyticsUserType() }),
       });
     } catch {
@@ -829,7 +851,7 @@ export const analyticsAPI = {
     try {
       await fetch(`${API_BASE_URL}/analytics/session`, {
         method: 'POST',
-        headers: getAuthHeaders(false),
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ durationMs, userType: getAnalyticsUserType() }),
       });
     } catch {
@@ -841,7 +863,7 @@ export const analyticsAPI = {
     try {
       await fetch(`${API_BASE_URL}/analytics/load`, {
         method: 'POST',
-        headers: getAuthHeaders(false),
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ loadTimeMs, userType: getAnalyticsUserType() }),
       });
     } catch {
@@ -853,7 +875,7 @@ export const analyticsAPI = {
     try {
       await fetch(`${API_BASE_URL}/analytics/session/start`, {
         method: 'POST',
-        headers: getAuthHeaders(false),
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ sessionId, startedAt, userType: getAnalyticsUserType() }),
       });
     } catch {
@@ -866,7 +888,7 @@ export const analyticsAPI = {
       const payload = JSON.stringify({ sessionId, durationMs, userType: getAnalyticsUserType() });
       await fetch(`${API_BASE_URL}/analytics/session/end`, {
         method: 'POST',
-        headers: getAuthHeaders(false),
+        headers: getAuthHeaders(true),
         body: payload,
         keepalive: true,
       });
@@ -886,7 +908,7 @@ export const analyticsAPI = {
     try {
       await fetch(`${API_BASE_URL}/analytics/session/ping`, {
         method: 'POST',
-        headers: getAuthHeaders(false),
+        headers: getAuthHeaders(true),
         body: JSON.stringify({ sessionId, userType: getAnalyticsUserType() }),
       });
     } catch {

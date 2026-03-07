@@ -3,19 +3,18 @@ import { useEffect, useRef } from 'react';
 import { Toaster } from './components/ui/sonner';
 import { AuthProvider } from './contexts/AuthContext';
 import { router } from './routes';
-import { analyticsAPI } from './services/api';
+import { ANALYTICS_SESSION_ID_KEY, analyticsAPI } from './services/api';
 
 export default function App() {
-  const SESSION_ID_KEY = 'ecolant_session_id';
   const SESSION_STARTED_KEY = 'ecolant_session_started';
   const sessionStartRef = useRef<number>(Date.now());
-  const existingSessionId = sessionStorage.getItem(SESSION_ID_KEY);
+  const existingSessionId = sessionStorage.getItem(ANALYTICS_SESSION_ID_KEY);
   const sessionIdRef = useRef<string>(existingSessionId || crypto.randomUUID());
   const sessionEndedRef = useRef<boolean>(false);
 
   useEffect(() => {
     if (!existingSessionId) {
-      sessionStorage.setItem(SESSION_ID_KEY, sessionIdRef.current);
+      sessionStorage.setItem(ANALYTICS_SESSION_ID_KEY, sessionIdRef.current);
     }
 
     const wasStarted = sessionStorage.getItem(SESSION_STARTED_KEY) === '1';

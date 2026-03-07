@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext.tsx';
-import { adminAPI } from '../services/api.ts';
+import { ANALYTICS_SESSION_ID_KEY, adminAPI } from '../services/api.ts';
 import { Card } from '../components/ui/card.tsx';
 import { Button } from '../components/ui/button.tsx';
 import { Input } from '../components/ui/input.tsx';
@@ -32,6 +32,7 @@ interface AdminSettings {
   maintenanceMode: boolean;
   rewardsEnabled: boolean;
   includeAdminAnalytics: boolean;
+  serverTimezone: string;
 }
 
 interface AdminAnalytics {
@@ -88,9 +89,39 @@ interface AnalyticsCampaign {
 interface ActiveAnalyticsSession {
   sessionId: string;
   userType: string;
+  userId?: string | null;
+  userName?: string | null;
+  userEmail?: string | null;
+  lastPath?: string | null;
+  lastActivityType?: string | null;
+  lastActivityAt?: string | null;
+  isCurrentSession?: boolean;
   startedAt: string | null;
   lastSeenAt: string | null;
   ageSeconds: number | null;
+}
+
+interface SessionActivityEvent {
+  id: string;
+  type: string;
+  userType: string;
+  path: string | null;
+  durationMs: number | null;
+  loadTimeMs: number | null;
+  timestamp: string;
+  sessionId: string;
+}
+
+interface ActiveSessionActivity {
+  sessionId: string;
+  userName: string | null;
+  userEmail: string | null;
+  userType: string | null;
+  lastPath: string | null;
+  lastActivityType: string | null;
+  lastActivityAt: string | null;
+  events: SessionActivityEvent[];
+  generatedAt: string;
 }
 
 interface AdminUser {
@@ -125,6 +156,7 @@ export default function AdminDashboardPage() {
     maintenanceMode: false,
     rewardsEnabled: true,
     includeAdminAnalytics: false,
+    serverTimezone: 'America/Tegucigalpa',
   });
   const [savingSettings, setSavingSettings] = useState(false);
   const [analytics, setAnalytics] = useState<AdminAnalytics>({
@@ -171,6 +203,9 @@ export default function AdminDashboardPage() {
   const [selectedActiveSessionIds, setSelectedActiveSessionIds] = useState<string[]>([]);
   const [activeSessionsError, setActiveSessionsError] = useState<string | null>(null);
   const [activeSessionsPollingEnabled, setActiveSessionsPollingEnabled] = useState(true);
+  const [monitoredSessionId, setMonitoredSessionId] = useState<string | null>(null);
+  const [sessionActivityData, setSessionActivityData] = useState<ActiveSessionActivity | null>(null);
+  const [sessionActivityLoading, setSessionActivityLoading] = useState(false);
   const [campaignForm, setCampaignForm] = useState({
     name: '',
     startsAt: '',
@@ -214,6 +249,7 @@ export default function AdminDashboardPage() {
         maintenanceMode: Boolean(settingsData?.maintenanceMode),
         rewardsEnabled: settingsData?.rewardsEnabled !== false,
         includeAdminAnalytics: Boolean(settingsData?.includeAdminAnalytics),
+        serverTimezone: settingsData?.serverTimezone || settings.serverTimezone,
       });
       const safeAnalytics: AdminAnalytics = {
         totalVisits: Number(analyticsData?.totalVisits || 0),
@@ -424,6 +460,12 @@ export default function AdminDashboardPage() {
         ? result.sessions.map((item: ActiveAnalyticsSession) => item.sessionId)
         : [];
       setSelectedActiveSessionIds((prev) => prev.filter((id) => activeIds.includes(id)));
+      setMonitoredSessionId((prev) => {
+        if (!prev) return prev;
+        if (activeIds.includes(prev)) return prev;
+        setSessionActivityData(null);
+        return null;
+      });
     } catch (error: any) {
       const message = error?.message || 'No se pudieron cargar las sesiones activas';
       setActiveSessionsError(message);
@@ -442,9 +484,19 @@ export default function AdminDashboardPage() {
   };
 
   const handleCloseOneActiveSession = async (sessionId: string) => {
+    const currentSessionId = sessionStorage.getItem(ANALYTICS_SESSION_ID_KEY);
+    if (currentSessionId && currentSessionId === sessionId) {
+      toast.error('No puedes cerrar tu sesion activa desde este panel');
+      return;
+    }
+
     try {
       await adminAPI.closeAnalyticsSession(sessionId);
       setSelectedActiveSessionIds((prev) => prev.filter((id) => id !== sessionId));
+      if (monitoredSessionId === sessionId) {
+        setMonitoredSessionId(null);
+        setSessionActivityData(null);
+      }
       await loadActiveSessionsControl();
       toast.success('Sesion cerrada');
     } catch (error: any) {
@@ -456,11 +508,12 @@ export default function AdminDashboardPage() {
     const confirmed = window.confirm('Cerrar todas las sesiones activas?');
     if (!confirmed) return;
     try {
-      await adminAPI.closeAllAnalyticsSessions();
+      const currentSessionId = sessionStorage.getItem(ANALYTICS_SESSION_ID_KEY) || undefined;
+      await adminAPI.closeAllAnalyticsSessions(currentSessionId);
       setSelectedActiveSessionIds([]);
       await loadActiveSessionsControl();
       await loadAdminData();
-      toast.success('Todas las sesiones activas fueron cerradas');
+      toast.success('Se cerraron todas las sesiones excepto la del administrador actual');
     } catch (error: any) {
       toast.error(error.message || 'No se pudieron cerrar las sesiones');
     }
@@ -475,7 +528,9 @@ export default function AdminDashboardPage() {
   };
 
   const handleSelectAllActiveSessions = () => {
-    const allIds = activeSessionsData?.sessions?.map((item) => item.sessionId) || [];
+    const allIds = activeSessionsData?.sessions
+      ?.filter((item) => !item.isCurrentSession)
+      .map((item) => item.sessionId) || [];
     setSelectedActiveSessionIds(allIds);
   };
 
@@ -493,7 +548,13 @@ export default function AdminDashboardPage() {
     if (!confirmed) return;
 
     try {
-      for (const sessionId of selectedActiveSessionIds) {
+      const currentSessionId = sessionStorage.getItem(ANALYTICS_SESSION_ID_KEY);
+      const closableIds = selectedActiveSessionIds.filter((sessionId) => sessionId !== currentSessionId);
+      if (closableIds.length === 0) {
+        toast.error('No hay sesiones cerrables en la seleccion actual');
+        return;
+      }
+      for (const sessionId of closableIds) {
         await adminAPI.closeAnalyticsSession(sessionId);
       }
       setSelectedActiveSessionIds([]);
@@ -504,6 +565,38 @@ export default function AdminDashboardPage() {
       toast.error(error.message || 'No se pudieron cerrar algunas sesiones');
     }
   };
+
+  const loadSessionActivity = async (sessionId: string, options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    try {
+      setSessionActivityLoading(true);
+      const result = await adminAPI.getAnalyticsSessionActivity(sessionId, 40);
+      setSessionActivityData(result || null);
+    } catch (error: any) {
+      if (!silent) {
+        toast.error(error?.message || 'No se pudo cargar la actividad de la sesion');
+      }
+    } finally {
+      setSessionActivityLoading(false);
+    }
+  };
+
+  const handleMonitorSession = async (sessionId: string) => {
+    setMonitoredSessionId(sessionId);
+    await loadSessionActivity(sessionId);
+  };
+
+  useEffect(() => {
+    if (!monitoredSessionId) return;
+
+    const intervalId = window.setInterval(() => {
+      void loadSessionActivity(monitoredSessionId, { silent: true });
+    }, 5000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [monitoredSessionId]);
 
   useEffect(() => {
     if (!isAdmin || !activeSessionsPollingEnabled) return;
@@ -532,6 +625,20 @@ export default function AdminDashboardPage() {
       return `${(safeDurationMs / 1000).toFixed(2)}s`;
     }
     return `${Math.round(safeDurationMs)}ms`;
+  };
+
+  const formatServerDateTime = (value?: string | null) => {
+    if (!value) return 'N/A';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return 'N/A';
+
+    try {
+      return parsed.toLocaleString('es-HN', {
+        timeZone: settings.serverTimezone || 'America/Tegucigalpa',
+      });
+    } catch {
+      return parsed.toLocaleString();
+    }
   };
 
   const toDateTimeLocalValue = (iso: string | null) => {
@@ -1421,6 +1528,26 @@ export default function AdminDashboardPage() {
                         </Button>
                       </div>
 
+                      <div className="space-y-1">
+                        <Label>Zona horaria del servidor</Label>
+                        <select
+                          className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                          value={settings.serverTimezone}
+                          onChange={(e) => setSettings({ ...settings, serverTimezone: e.target.value })}
+                        >
+                          <option value="America/Tegucigalpa">America/Tegucigalpa (UTC-6)</option>
+                          <option value="America/Mexico_City">America/Mexico_City</option>
+                          <option value="America/Bogota">America/Bogota</option>
+                          <option value="America/Lima">America/Lima</option>
+                          <option value="America/New_York">America/New_York</option>
+                          <option value="UTC">UTC</option>
+                          <option value="Europe/Madrid">Europe/Madrid</option>
+                        </select>
+                        <p className="text-xs text-gray-500">
+                          Hora actual del servidor: {formatServerDateTime(new Date().toISOString())}
+                        </p>
+                      </div>
+
                       <Button className="w-full" onClick={handleSaveSettings} disabled={savingSettings}>
                         {savingSettings ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Guardar configuración'}
                       </Button>
@@ -1482,6 +1609,10 @@ export default function AdminDashboardPage() {
                     <Badge variant="secondary">Seleccionadas: {selectedActiveSessionIds.length}</Badge>
                   </div>
 
+                  <p className="text-xs text-slate-500">
+                    Zona horaria aplicada: <strong>{settings.serverTimezone || 'America/Tegucigalpa'}</strong>
+                  </p>
+
                   {activeSessionsError && (
                     <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                       {activeSessionsError}
@@ -1504,38 +1635,57 @@ export default function AdminDashboardPage() {
                   <div className="rounded-md border overflow-hidden">
                     <div className="grid grid-cols-12 gap-2 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
                       <span className="col-span-1">Sel</span>
-                      <span className="col-span-4">Sesion</span>
-                      <span className="col-span-2">Tipo</span>
-                      <span className="col-span-2">Inicio</span>
+                      <span className="col-span-3">Sesion</span>
+                      <span className="col-span-2">Usuario</span>
+                      <span className="col-span-1">Tipo</span>
+                      <span className="col-span-1">Actual</span>
                       <span className="col-span-2">Ultimo ping</span>
-                      <span className="col-span-1 text-right">Accion</span>
+                      <span className="col-span-2 text-right">Accion</span>
                     </div>
 
                     <div className="max-h-80 overflow-y-auto">
                       {activeSessionsData?.sessions?.map((item) => {
                         const isSelected = selectedActiveSessionIds.includes(item.sessionId);
+                        const isCurrent = Boolean(item.isCurrentSession);
                         return (
                           <div key={item.sessionId} className={`grid grid-cols-12 gap-2 px-3 py-2 border-t text-xs items-center ${isSelected ? 'bg-blue-50' : 'bg-white'}`}>
                             <div className="col-span-1">
                               <input
                                 type="checkbox"
                                 checked={isSelected}
+                                disabled={isCurrent}
                                 onChange={() => handleToggleActiveSessionSelection(item.sessionId)}
                                 aria-label={`Seleccionar sesion ${item.sessionId}`}
                               />
                             </div>
-                            <div className="col-span-4 font-medium truncate" title={item.sessionId}>{item.sessionId}</div>
+                            <div className="col-span-3">
+                              <p className="font-medium truncate" title={item.sessionId}>{item.sessionId}</p>
+                              <p className="text-[10px] text-slate-500 truncate" title={item.lastPath || ''}>
+                                {item.lastPath ? `Ruta: ${item.lastPath}` : 'Sin ruta reciente'}
+                              </p>
+                            </div>
                             <div className="col-span-2">
+                              <p className="font-medium truncate" title={item.userName || ''}>{item.userName || 'Invitado'}</p>
+                              <p className="text-[10px] text-slate-500 truncate" title={item.userEmail || ''}>{item.userEmail || 'sin correo'}</p>
+                            </div>
+                            <div className="col-span-1">
                               <Badge variant="outline">{item.userType}</Badge>
                             </div>
-                            <div className="col-span-2 truncate" title={item.startedAt || ''}>
-                              {item.startedAt ? new Date(item.startedAt).toLocaleTimeString() : 'N/A'}
+                            <div className="col-span-1">
+                              {isCurrent ? (
+                                <Badge className="bg-emerald-600 text-white hover:bg-emerald-600">Tu sesión</Badge>
+                              ) : (
+                                <Badge variant="secondary">Remota</Badge>
+                              )}
                             </div>
                             <div className="col-span-2 truncate" title={item.lastSeenAt || ''}>
-                              {item.lastSeenAt ? new Date(item.lastSeenAt).toLocaleTimeString() : 'N/A'}
+                              {formatServerDateTime(item.lastSeenAt)}
                             </div>
-                            <div className="col-span-1 text-right">
-                              <Button size="sm" variant="destructive" onClick={() => void handleCloseOneActiveSession(item.sessionId)}>
+                            <div className="col-span-2 flex justify-end gap-1">
+                              <Button size="sm" variant="outline" onClick={() => void handleMonitorSession(item.sessionId)}>
+                                Ver
+                              </Button>
+                              <Button size="sm" variant="destructive" disabled={isCurrent} onClick={() => void handleCloseOneActiveSession(item.sessionId)}>
                                 Cerrar
                               </Button>
                             </div>
@@ -1548,6 +1698,48 @@ export default function AdminDashboardPage() {
                       )}
                     </div>
                   </div>
+
+                  <Card className="p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <h4 className="font-semibold">Monitoreo en tiempo real</h4>
+                        <p className="text-xs text-slate-500">
+                          {monitoredSessionId
+                            ? `Sesion: ${monitoredSessionId}`
+                            : 'Selecciona una sesion y pulsa "Ver" para monitorear actividad.'}
+                        </p>
+                      </div>
+                      {monitoredSessionId && (
+                        <Button size="sm" variant="outline" onClick={() => void loadSessionActivity(monitoredSessionId)} disabled={sessionActivityLoading}>
+                          {sessionActivityLoading ? 'Actualizando...' : 'Actualizar'}
+                        </Button>
+                      )}
+                    </div>
+
+                    {sessionActivityData && (
+                      <div className="mt-3 space-y-2">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+                          <div className="rounded border p-2 bg-slate-50"><strong>Usuario:</strong> {sessionActivityData.userName || 'Invitado'}</div>
+                          <div className="rounded border p-2 bg-slate-50"><strong>Correo:</strong> {sessionActivityData.userEmail || 'sin correo'}</div>
+                          <div className="rounded border p-2 bg-slate-50"><strong>Ultima ruta:</strong> {sessionActivityData.lastPath || 'sin registro'}</div>
+                          <div className="rounded border p-2 bg-slate-50"><strong>Ultima actividad:</strong> {formatServerDateTime(sessionActivityData.lastActivityAt)}</div>
+                        </div>
+
+                        <div className="rounded border max-h-52 overflow-y-auto">
+                          {sessionActivityData.events.length === 0 ? (
+                            <div className="px-3 py-4 text-xs text-slate-500">No hay eventos registrados para esta sesion todavia.</div>
+                          ) : (
+                            sessionActivityData.events.map((event) => (
+                              <div key={event.id} className="px-3 py-2 border-t text-xs bg-white">
+                                <p className="font-medium">{event.type} {event.path ? `- ${event.path}` : ''}</p>
+                                <p className="text-slate-500">{formatServerDateTime(event.timestamp)}</p>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </Card>
                   </div>
                 </Card>
                 </TabsContent>

@@ -258,15 +258,91 @@ const syncConcurrentSessions = async () => {
 };
 
 const getAppSettings = async () => {
-  return (
-    (await kv.get('app:settings')) || {
-      appName: 'EcolLantApp',
-      supportEmail: 'soporte@ecollant.com',
-      maintenanceMode: false,
-      rewardsEnabled: true,
-      includeAdminAnalytics: false,
-    }
-  );
+  const defaults = {
+    appName: 'EcolLantApp',
+    supportEmail: 'soporte@ecollant.com',
+    maintenanceMode: false,
+    rewardsEnabled: true,
+    includeAdminAnalytics: false,
+    serverTimezone: 'America/Tegucigalpa',
+  };
+  const stored = await kv.get('app:settings');
+  return {
+    ...defaults,
+    ...(stored || {}),
+  };
+};
+
+const getAccessTokenFromRequest = (c: any) => {
+  const value = c.req.header('Authorization') || '';
+  if (!value.toLowerCase().startsWith('bearer ')) return null;
+  return value.slice(7).trim() || null;
+};
+
+const resolveAuthenticatedUserFromRequest = async (c: any) => {
+  const accessToken = getAccessTokenFromRequest(c);
+  if (!accessToken) return null;
+
+  // Ignore anon/static keys and only try to resolve JWT-shaped tokens.
+  if (String(accessToken).split('.').length !== 3) {
+    return null;
+  }
+
+  const supabase = getSupabaseClient(true);
+  const { data, error } = await supabase.auth.getUser(accessToken);
+  if (error || !data?.user?.id) {
+    return null;
+  }
+
+  const user = data.user;
+  const profile = await kv.get(`user:${user.id}`);
+  const metadata = user.user_metadata || {};
+
+  return {
+    id: user.id,
+    email: String(user.email || profile?.email || ''),
+    name: String(profile?.name || metadata?.name || user.email || 'Usuario'),
+    type: String(profile?.type || metadata?.type || 'unknown'),
+  };
+};
+
+const getSessionMetaKey = (sessionId: string) => `analytics:session-meta:${sessionId}`;
+const getSessionActivityKey = (sessionId: string) => `analytics:session-activity:${sessionId}`;
+
+const upsertSessionMeta = async (
+  sessionId: string,
+  updates: Record<string, any>,
+) => {
+  if (!sessionId) return null;
+  const key = getSessionMetaKey(sessionId);
+  const current = (await kv.get(key)) || {};
+  const merged = {
+    ...current,
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  };
+  await kv.set(key, merged);
+  return merged;
+};
+
+const appendSessionActivity = async (
+  sessionId: string,
+  event: Record<string, any>,
+) => {
+  if (!sessionId) return;
+  const key = getSessionActivityKey(sessionId);
+  const current = (await kv.get(key)) || [];
+  const safeCurrent = Array.isArray(current) ? current : [];
+  const next = [
+    {
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      sessionId,
+      ...event,
+    },
+    ...safeCurrent,
+  ].slice(0, 60);
+  await kv.set(key, next);
 };
 
 const shouldTrackAnalyticsForUserType = async (userType?: string) => {
@@ -306,15 +382,37 @@ app.post('/server/analytics/visit', async (c) => {
     if (!(await shouldTrackAnalyticsForUserType(payload?.userType))) {
       return c.json({ message: 'Visit tracking skipped for admin' }, 200);
     }
-    const supabase = getSupabaseClient(true);
-    const { error } = await supabase.rpc('analytics_track_visit', {
-      p_path: payload?.path || null,
-      p_user_type: payload?.userType || 'unknown',
-    });
 
-    if (error) {
-      throw new Error(error.message);
+    const sessionId = String(payload?.sessionId || '').trim();
+    const resolvedUser = await resolveAuthenticatedUserFromRequest(c);
+    const safeUserType = payload?.userType || resolvedUser?.type || 'unknown';
+    const supabase = getSupabaseClient(true);
+    const { error: rpcError } = await supabase.rpc('analytics_track_visit', {
+      p_path: payload?.path || null,
+      p_user_type: safeUserType,
+    });
+    if (rpcError) {
+      throw new Error(rpcError.message);
     }
+
+    if (sessionId) {
+      await upsertSessionMeta(sessionId, {
+        sessionId,
+        userId: resolvedUser?.id || null,
+        userEmail: resolvedUser?.email || null,
+        userName: resolvedUser?.name || null,
+        userType: safeUserType,
+        lastPath: String(payload?.path || ''),
+        lastActivityType: 'visit',
+        lastActivityAt: new Date().toISOString(),
+      });
+      await appendSessionActivity(sessionId, {
+        type: 'visit',
+        path: String(payload?.path || ''),
+        userType: safeUserType,
+      });
+    }
+
     return c.json({ message: 'Visit tracked' }, 201);
   } catch (error) {
     console.log(`Analytics visit error: ${error}`);
@@ -390,16 +488,34 @@ app.post('/server/analytics/session/start', async (c) => {
       return c.json({ error: 'sessionId is required' }, 400);
     }
 
+    const resolvedUser = await resolveAuthenticatedUserFromRequest(c);
+    const safeUserType = payload?.userType || resolvedUser?.type || 'unknown';
     const supabase = getSupabaseClient(true);
     const { data, error } = await supabase.rpc('analytics_session_start_tx', {
       p_session_id: sessionId,
       p_started_at: payload?.startedAt || new Date().toISOString(),
-      p_user_type: payload?.userType || 'unknown',
+      p_user_type: safeUserType,
     });
 
     if (error) {
       throw new Error(error.message);
     }
+
+    await upsertSessionMeta(sessionId, {
+      sessionId,
+      userId: resolvedUser?.id || null,
+      userEmail: resolvedUser?.email || null,
+      userName: resolvedUser?.name || null,
+      userType: safeUserType,
+      startedAt: payload?.startedAt || new Date().toISOString(),
+      lastActivityType: 'session_start',
+      lastActivityAt: new Date().toISOString(),
+    });
+    await appendSessionActivity(sessionId, {
+      type: 'session_start',
+      userType: safeUserType,
+      startedAt: payload?.startedAt || new Date().toISOString(),
+    });
 
     return c.json({
       message: 'Session started',
@@ -424,15 +540,31 @@ app.post('/server/analytics/session/ping', async (c) => {
       return c.json({ error: 'sessionId is required' }, 400);
     }
 
+    const resolvedUser = await resolveAuthenticatedUserFromRequest(c);
+    const safeUserType = payload?.userType || resolvedUser?.type || 'unknown';
     const supabase = getSupabaseClient(true);
     const { data, error } = await supabase.rpc('analytics_session_ping_tx', {
       p_session_id: sessionId,
-      p_user_type: payload?.userType || 'unknown',
+      p_user_type: safeUserType,
     });
 
     if (error) {
       throw new Error(error.message);
     }
+
+    await upsertSessionMeta(sessionId, {
+      sessionId,
+      userId: resolvedUser?.id || null,
+      userEmail: resolvedUser?.email || null,
+      userName: resolvedUser?.name || null,
+      userType: safeUserType,
+      lastActivityType: 'ping',
+      lastActivityAt: new Date().toISOString(),
+    });
+    await appendSessionActivity(sessionId, {
+      type: 'ping',
+      userType: safeUserType,
+    });
 
     return c.json({
       message: 'Session ping tracked',
@@ -462,16 +594,25 @@ app.post('/server/analytics/session/end', async (c) => {
       return c.json({ error: 'durationMs must be a number' }, 400);
     }
 
+    const resolvedUser = await resolveAuthenticatedUserFromRequest(c);
+    const safeUserType = payload?.userType || resolvedUser?.type || 'unknown';
     const supabase = getSupabaseClient(true);
     const { data, error } = await supabase.rpc('analytics_track_session_end', {
       p_session_id: sessionId,
       p_duration_ms: durationMs,
-      p_user_type: payload?.userType || 'unknown',
+      p_user_type: safeUserType,
     });
 
     if (error) {
       throw new Error(error.message);
     }
+
+    await appendSessionActivity(sessionId, {
+      type: 'session_end',
+      userType: safeUserType,
+      durationMs,
+    });
+    await kv.del(getSessionMetaKey(sessionId));
 
     return c.json({
       message: 'Session ended',
@@ -1741,10 +1882,13 @@ app.put('/server/admin/settings', async (c) => {
 
     const updates = await c.req.json();
     const current = await getAppSettings();
+    const rawTimezone = String(updates?.serverTimezone || current?.serverTimezone || 'America/Tegucigalpa').trim();
+    const serverTimezone = rawTimezone.length > 0 ? rawTimezone.slice(0, 80) : 'America/Tegucigalpa';
 
     const merged = {
       ...current,
       ...updates,
+      serverTimezone,
       updatedAt: new Date().toISOString(),
     };
 
@@ -1818,6 +1962,7 @@ app.get('/server/admin/analytics', async (c) => {
     const auth = await requireAdmin(c);
     if (auth.error) return auth.error;
 
+    await syncConcurrentSessions();
     const analytics = await getAnalyticsOverview();
     return c.json(analytics);
   } catch (error) {
@@ -2160,6 +2305,15 @@ app.post('/server/admin/analytics/reset-active-sessions', async (c) => {
       throw new Error(error.message);
     }
 
+    const metaKeys = await kv.getKeysByPrefix('analytics:session-meta:');
+    if (metaKeys.length > 0) {
+      await kv.mdel(metaKeys);
+    }
+    const activityKeys = await kv.getKeysByPrefix('analytics:session-activity:');
+    if (activityKeys.length > 0) {
+      await kv.mdel(activityKeys);
+    }
+
     return c.json({
       message: 'All active sessions reset',
       removedActiveSessions: Number(count || 0),
@@ -2176,8 +2330,9 @@ app.get('/server/admin/analytics/sessions/active', async (c) => {
   try {
     const auth = await requireAdmin(c);
     if (auth.error) return auth.error;
+    const currentSessionId = String(c.req.query('currentSessionId') || '').trim();
 
-    await syncConcurrentSessions();
+    const snapshot = await syncConcurrentSessions();
     const supabase = getSupabaseClient(true);
     const { data, error } = await supabase
       .from('analytics_active_sessions')
@@ -2193,6 +2348,7 @@ app.get('/server/admin/analytics/sessions/active', async (c) => {
 
     for (const item of (data || [])) {
       const sessionId = String(item?.session_id || '');
+      const sessionMeta = sessionId ? await kv.get(getSessionMetaKey(sessionId)) : null;
       const startedAt = item?.started_at || null;
       const lastSeenAt = item?.last_seen_at || startedAt;
       const lastSeenTime = new Date(String(lastSeenAt || '')).getTime();
@@ -2202,24 +2358,68 @@ app.get('/server/admin/analytics/sessions/active', async (c) => {
 
       sessions.push({
         sessionId,
-        userType: item?.user_type || 'unknown',
+        userType: sessionMeta?.userType || item?.user_type || 'unknown',
+        userId: sessionMeta?.userId || null,
+        userName: sessionMeta?.userName || null,
+        userEmail: sessionMeta?.userEmail || null,
+        lastPath: sessionMeta?.lastPath || null,
+        lastActivityType: sessionMeta?.lastActivityType || null,
+        lastActivityAt: sessionMeta?.lastActivityAt || null,
+        isCurrentSession: Boolean(currentSessionId && sessionId === currentSessionId),
         startedAt,
         lastSeenAt,
         ageSeconds,
       });
     }
 
-    const snapshot = await syncConcurrentSessions();
+    const activeSessions = sessions.length;
+    const concurrentSessions = activeSessions > 1 ? activeSessions : 0;
+
     return c.json({
-      activeSessions: snapshot.activeSessions,
-      concurrentSessions: snapshot.concurrentSessions,
-      peakConcurrentSessions: snapshot.peakConcurrentSessions,
+      activeSessions,
+      concurrentSessions,
+      peakConcurrentSessions: Math.max(Number(snapshot.peakConcurrentSessions || 0), concurrentSessions),
+      currentSessionId: currentSessionId || null,
       sessions,
       generatedAt: new Date().toISOString(),
     });
   } catch (error) {
     console.log(`Admin analytics active sessions error: ${error}`);
     return c.json({ error: 'Error getting active sessions' }, 500);
+  }
+});
+
+app.get('/server/admin/analytics/sessions/:sessionId/activity', async (c) => {
+  try {
+    const auth = await requireAdmin(c);
+    if (auth.error) return auth.error;
+
+    const sessionId = c.req.param('sessionId');
+    const limitRaw = Number(c.req.query('limit') || 25);
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 25;
+
+    if (!sessionId) {
+      return c.json({ error: 'sessionId is required' }, 400);
+    }
+
+    const sessionMeta = await kv.get(getSessionMetaKey(sessionId));
+    const rawEvents = await kv.get(getSessionActivityKey(sessionId));
+    const events = Array.isArray(rawEvents) ? rawEvents.slice(0, limit) : [];
+
+    return c.json({
+      sessionId,
+      userName: sessionMeta?.userName || null,
+      userEmail: sessionMeta?.userEmail || null,
+      userType: sessionMeta?.userType || null,
+      lastPath: sessionMeta?.lastPath || null,
+      lastActivityType: sessionMeta?.lastActivityType || null,
+      lastActivityAt: sessionMeta?.lastActivityAt || null,
+      events,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.log(`Admin analytics session activity error: ${error}`);
+    return c.json({ error: 'Error getting session activity' }, 500);
   }
 });
 
@@ -2250,6 +2450,9 @@ app.delete('/server/admin/analytics/sessions/:sessionId', async (c) => {
       throw new Error(error.message);
     }
 
+    await kv.del(getSessionMetaKey(sessionId));
+    await kv.del(getSessionActivityKey(sessionId));
+
     return c.json({
       message: 'Session closed',
       sessionId,
@@ -2267,24 +2470,47 @@ app.post('/server/admin/analytics/sessions/close-all', async (c) => {
     const auth = await requireAdmin(c);
     if (auth.error) return auth.error;
 
+    const payload = await c.req.json().catch(() => ({}));
+    const excludeSessionId = String(payload?.excludeSessionId || '').trim();
+
     const supabase = getSupabaseClient(true);
-    const { count, error: countError } = await supabase
+    const { data: activeRows, error: countError } = await supabase
       .from('analytics_active_sessions')
-      .select('session_id', { count: 'exact', head: true });
+      .select('session_id');
     if (countError) {
       throw new Error(countError.message);
     }
 
-    const { data, error } = await supabase.rpc('analytics_close_all_sessions_tx');
-    if (error) {
-      throw new Error(error.message);
+    const rows = activeRows || [];
+    const toClose = rows
+      .map((item: any) => String(item?.session_id || ''))
+      .filter((sessionId: string) => sessionId && sessionId !== excludeSessionId);
+
+    if (toClose.length > 0) {
+      const { error: deleteError } = await supabase
+        .from('analytics_active_sessions')
+        .delete()
+        .in('session_id', toClose);
+      if (deleteError) {
+        throw new Error(deleteError.message);
+      }
+
+      const metaKeys = toClose.map((sessionId: string) => getSessionMetaKey(sessionId));
+      await kv.mdel(metaKeys);
+      const activityKeys = toClose.map((sessionId: string) => getSessionActivityKey(sessionId));
+      await kv.mdel(activityKeys);
     }
 
+    const snapshot = await syncConcurrentSessions();
+
     return c.json({
-      message: 'All active sessions closed',
-      removedSessions: Number(count || 0),
-      activeSessions: Number(data?.active_sessions || 0),
-      concurrentSessions: Number(data?.concurrent_sessions || 0),
+      message: excludeSessionId
+        ? 'All active sessions closed except current admin session'
+        : 'All active sessions closed',
+      removedSessions: toClose.length,
+      preservedSessionId: excludeSessionId || null,
+      activeSessions: Number(snapshot?.activeSessions || 0),
+      concurrentSessions: Number(snapshot?.concurrentSessions || 0),
     });
   } catch (error) {
     console.log(`Admin analytics close all sessions error: ${error}`);
