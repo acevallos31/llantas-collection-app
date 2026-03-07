@@ -75,6 +75,32 @@ const findRedemptionById = async (redemptionId: string) => {
   return null;
 };
 
+const repairMojibake = (value: unknown) => {
+  const text = String(value ?? '');
+  if (!text) return '';
+
+  // Fast path: skip when text does not look like mojibake.
+  if (!/[ÃÂâ]/.test(text)) return text;
+
+  try {
+    const bytes = new Uint8Array(Array.from(text).map((ch) => ch.charCodeAt(0)).filter((code) => code >= 0 && code <= 255));
+    const repaired = new TextDecoder('utf-8').decode(bytes);
+    return repaired || text;
+  } catch {
+    return text;
+  }
+};
+
+const escapeHtml = (value: unknown) => {
+  const text = String(value ?? '');
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+};
+
 const PRICING_DEFAULTS = {
   generatorTariffsByCondition: {
     excelente: 300,
@@ -3274,13 +3300,13 @@ const generateCouponHTML = (couponCode: string, redemption: any, reward: any, us
     month: 'long',
     day: 'numeric'
   });
-  const safeCode = String(couponCode || '');
-  const safeRewardTitle = String(reward?.title || 'Recompensa');
-  const safeRewardDescription = String(reward?.description || 'Disfruta de tu recompensa en nuestros comercios afiliados.');
-  const safeUserName = String(user?.name || user?.email || 'Usuario');
+  const safeCode = escapeHtml(repairMojibake(couponCode || ''));
+  const safeRewardTitle = escapeHtml(repairMojibake(reward?.title || 'Recompensa'));
+  const safeRewardDescription = escapeHtml(repairMojibake(reward?.description || 'Disfruta de tu recompensa en nuestros comercios afiliados.'));
+  const safeUserName = escapeHtml(repairMojibake(user?.name || user?.email || 'Usuario'));
   const safePoints = Number(redemption?.pointsCost || 0);
-  const safeRedemptionId = String(redemption?.id || '');
-  const safeSponsor = String(reward?.sponsor || '');
+  const safeRedemptionId = escapeHtml(repairMojibake(redemption?.id || ''));
+  const safeSponsor = escapeHtml(repairMojibake(reward?.sponsor || ''));
   const issueDate = new Date(redemption.createdAt).toLocaleDateString('es-HN');
   const qrPayload = encodeURIComponent(JSON.stringify({
     couponCode: safeCode,
@@ -3380,7 +3406,7 @@ const generateCouponHTML = (couponCode: string, redemption: any, reward: any, us
         <p>1. Presenta este cupon (impreso o digital) en el comercio afiliado<br>
         2. El comercio verificara el codigo del cupon y/o QR<br>
         3. Una vez validado, podras disfrutar de tu recompensa<br>
-        4. Este cupón es de un solo uso y no es transferible</p>
+        4. Este cupon es de un solo uso y no es transferible</p>
       </div>
     </div>
     <div class="footer">
@@ -3681,18 +3707,17 @@ app.get("/server/coupons/:redemptionId", async (c) => {
       ? html.replace('</body>', '<script>window.onload=function(){window.print();};</script></body>')
       : html;
 
-    return new Response(payload, {
-      status: 200,
-      headers: {
-        'content-type': 'text/html; charset=utf-8',
-        'cache-control': 'no-store',
-      },
+    return c.body(payload, 200, {
+      'content-type': 'text/html; charset=utf-8',
+      'cache-control': 'no-store',
+      'content-disposition': `inline; filename="cupon-${redemptionId}.html"`,
+      'x-content-type-options': 'nosniff',
     });
   } catch (error) {
     console.log(`Get coupon error: ${error}`);
-    return new Response('<h1>Error</h1><p>Error al cargar el cupon.</p>', {
-      status: 500,
-      headers: { 'content-type': 'text/html; charset=utf-8' },
+    return c.body('<h1>Error</h1><p>Error al cargar el cupon.</p>', 500, {
+      'content-type': 'text/html; charset=utf-8',
+      'x-content-type-options': 'nosniff',
     });
   }
 });
