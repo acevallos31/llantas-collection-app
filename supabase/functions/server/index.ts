@@ -1,8 +1,10 @@
+// @ts-nocheck
+// Este archivo usa Deno runtime y módulos npm:/jsr: que TypeScript no reconoce
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
 import { createClient } from "jsr:@supabase/supabase-js@2.49.8";
-import * as kv from "./kv_store.tsx";
+import * as kv from "./kv_store.ts";
 
 const app = new Hono();
 const ADMIN_EMAIL = 'admin@ecollant.com';
@@ -4165,6 +4167,807 @@ app.post("/server/upload", async (c) => {
   } catch (error) {
     console.log(`Upload error: ${error}`);
     return c.json({ error: 'Error uploading file' }, 500);
+  }
+});
+
+// ==================== PAYMENTS ROUTES ====================
+
+// Get payment settings
+app.get("/server/payments/settings", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    if (!accessToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const supabase = getSupabaseClient(true);
+    const { data: settings, error } = await supabase
+      .from('payment_settings')
+      .select('*')
+      .eq('id', 1)
+      .single();
+
+    if (error) {
+      console.error('Error fetching payment settings:', error);
+      return c.json({ error: 'Error al obtener configuración de pagos' }, 500);
+    }
+
+    return c.json({
+      id: settings.id,
+      paymentPerKm: parseFloat(settings.payment_per_km),
+      minPaymentAmount: parseFloat(settings.min_payment_amount),
+      minCollectorPoints: settings.min_collector_points,
+      pointsPerTire: settings.points_per_tire,
+      cashPaymentPerTire: parseFloat(settings.cash_payment_per_tire),
+      minGeneratorPointsOnCash: settings.min_generator_points_on_cash,
+      currency: settings.currency,
+      updatedAt: settings.updated_at,
+    });
+  } catch (error) {
+    console.error('Payment settings error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Update payment settings
+app.put("/server/payments/settings", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    // Check if user is admin
+    const userProfile = await kv.get(`user:${user.id}`);
+    if (userProfile?.type !== 'admin') {
+      return c.json({ error: 'Forbidden: Admin access required' }, 403);
+    }
+
+    const body = await c.req.json();
+    const updates: any = {};
+
+    if (body.paymentPerKm !== undefined) updates.payment_per_km = body.paymentPerKm;
+    if (body.minPaymentAmount !== undefined) updates.min_payment_amount = body.minPaymentAmount;
+    if (body.minCollectorPoints !== undefined) updates.min_collector_points = body.minCollectorPoints;
+    if (body.pointsPerTire !== undefined) updates.points_per_tire = body.pointsPerTire;
+    if (body.cashPaymentPerTire !== undefined) updates.cash_payment_per_tire = body.cashPaymentPerTire;
+    if (body.minGeneratorPointsOnCash !== undefined) updates.min_generator_points_on_cash = body.minGeneratorPointsOnCash;
+    updates.updated_at = new Date().toISOString();
+
+    const { data: settings, error } = await supabase
+      .from('payment_settings')
+      .update(updates)
+      .eq('id', 1)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating payment settings:', error);
+      return c.json({ error: 'Error al actualizar configuración' }, 500);
+    }
+
+    return c.json({
+      id: settings.id,
+      paymentPerKm: parseFloat(settings.payment_per_km),
+      minPaymentAmount: parseFloat(settings.min_payment_amount),
+      minCollectorPoints: settings.min_collector_points,
+      pointsPerTire: settings.points_per_tire,
+      cashPaymentPerTire: parseFloat(settings.cash_payment_per_tire),
+      minGeneratorPointsOnCash: settings.min_generator_points_on_cash,
+      currency: settings.currency,
+      updatedAt: settings.updated_at,
+    });
+  } catch (error) {
+    console.error('Update payment settings error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Calculate distance
+app.post("/server/payments/calculate-distance", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    if (!accessToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { lat1, lng1, lat2, lng2 } = await c.req.json();
+
+    const supabase = getSupabaseClient(true);
+    const { data, error } = await supabase.rpc('calculate_distance_km', {
+      p_lat1: lat1,
+      p_lng1: lng1,
+      p_lat2: lat2,
+      p_lng2: lng2,
+    });
+
+    if (error) {
+      console.error('Error calculating distance:', error);
+      return c.json({ error: 'Error al calcular distancia' }, 500);
+    }
+
+    return c.json({ distanceKm: parseFloat(data || 0) });
+  } catch (error) {
+    console.error('Calculate distance error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Calculate collector payment
+app.post("/server/payments/calculate-collector", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    if (!accessToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { distanceKm } = await c.req.json();
+
+    const supabase = getSupabaseClient(true);
+    const { data, error } = await supabase.rpc('calculate_collector_payment', {
+      p_distance_km: distanceKm,
+    });
+
+    if (error) {
+      console.error('Error calculating collector payment:', error);
+      return c.json({ error: 'Error al calcular pago' }, 500);
+    }
+
+    const result = Array.isArray(data) ? data[0] : data;
+    return c.json({
+      paymentAmount: parseFloat(result.payment_amount),
+      pointsAwarded: result.points_awarded,
+    });
+  } catch (error) {
+    console.error('Calculate collector payment error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Calculate generator payment
+app.post("/server/payments/calculate-generator", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    if (!accessToken) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { tireCount, paymentPreference } = await c.req.json();
+
+    const supabase = getSupabaseClient(true);
+    const { data, error } = await supabase.rpc('calculate_generator_payment', {
+      p_tire_count: tireCount,
+      p_payment_preference: paymentPreference,
+    });
+
+    if (error) {
+      console.error('Error calculating generator payment:', error);
+      return c.json({ error: 'Error al calcular pago' }, 500);
+    }
+
+    const result = Array.isArray(data) ? data[0] : data;
+    return c.json({
+      cashAmount: parseFloat(result.cash_amount),
+      pointsAwarded: result.points_awarded,
+    });
+  } catch (error) {
+    console.error('Calculate generator payment error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Create collector payment
+app.post("/server/payments/collector", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { collectionId, collectorId, pickupLat, pickupLng, deliveryLat, deliveryLng } = await c.req.json();
+
+    const { data, error } = await supabase.rpc('create_collector_payment', {
+      p_collection_id: collectionId,
+      p_collector_id: collectorId,
+      p_pickup_lat: pickupLat,
+      p_pickup_lng: pickupLng,
+      p_delivery_lat: deliveryLat,
+      p_delivery_lng: deliveryLng,
+    });
+
+    if (error) {
+      console.error('Error creating collector payment:', error);
+      return c.json({ error: 'Error al crear pago del recolector' }, 500);
+    }
+
+    return c.json({
+      id: data.id,
+      collectionId: data.collection_id,
+      collectorId: data.collector_id,
+      pickupLat: data.pickup_lat,
+      pickupLng: data.pickup_lng,
+      deliveryLat: data.delivery_lat,
+      deliveryLng: data.delivery_lng,
+      distanceKm: parseFloat(data.distance_km || 0),
+      paymentAmount: parseFloat(data.payment_amount),
+      pointsAwarded: data.points_awarded,
+      status: data.status,
+      createdAt: data.created_at,
+    });
+  } catch (error) {
+    console.error('Create collector payment error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Get collector payments
+app.get("/server/payments/collector", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const collectorId = c.req.query('collectorId');
+    const status = c.req.query('status');
+    const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!) : 50;
+
+    let query = supabase
+      .from('collector_payments')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (collectorId) {
+      query = query.eq('collector_id', collectorId);
+    }
+    if (status) {
+      query = query.eq('status', status);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Error fetching collector payments:', error);
+      return c.json({ error: 'Error al obtener pagos' }, 500);
+    }
+
+    return c.json(data.map((payment: any) => ({
+      id: payment.id,
+      collectionId: payment.collection_id,
+      collectorId: payment.collector_id,
+      pickupLat: payment.pickup_lat,
+      pickupLng: payment.pickup_lng,
+      deliveryLat: payment.delivery_lat,
+      deliveryLng: payment.delivery_lng,
+      distanceKm: parseFloat(payment.distance_km || 0),
+      paymentAmount: parseFloat(payment.payment_amount),
+      pointsAwarded: payment.points_awarded,
+      status: payment.status,
+      paymentMethod: payment.payment_method,
+      paymentReference: payment.payment_reference,
+      createdAt: payment.created_at,
+      processedAt: payment.processed_at,
+      processedBy: payment.processed_by,
+      notes: payment.notes,
+    })));
+  } catch (error) {
+    console.error('Get collector payments error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Process collector payment
+app.post("/server/payments/collector/process", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    // Check if user is admin
+    const userProfile = await kv.get(`user:${user.id}`);
+    if (userProfile?.type !== 'admin') {
+      return c.json({ error: 'Forbidden: Admin access required' }, 403);
+    }
+
+    const { paymentId, paymentMethod, paymentReference, notes } = await c.req.json();
+
+    const { data, error } = await supabase.rpc('process_collector_payment', {
+      p_payment_id: paymentId,
+      p_payment_method: paymentMethod,
+      p_payment_reference: paymentReference || '',
+      p_processed_by: user.id,
+    });
+
+    if (error) {
+      console.error('Error processing collector payment:', error);
+      return c.json({ error: error.message || 'Error al procesar pago' }, 500);
+    }
+
+    // Update notes if provided
+    if (notes) {
+      await supabase
+        .from('collector_payments')
+        .update({ notes })
+        .eq('id', paymentId);
+    }
+
+    // Update user profile in KV with new points
+    const collectorProfile = await kv.get(`user:${data.collector_id}`);
+    if (collectorProfile) {
+      collectorProfile.points = (collectorProfile.points || 0) + data.points_awarded;
+      await kv.set(`user:${data.collector_id}`, collectorProfile);
+    }
+
+    return c.json({
+      id: data.id,
+      collectionId: data.collection_id,
+      collectorId: data.collector_id,
+      distanceKm: parseFloat(data.distance_km || 0),
+      paymentAmount: parseFloat(data.payment_amount),
+      pointsAwarded: data.points_awarded,
+      status: data.status,
+      paymentMethod: data.payment_method,
+      paymentReference: data.payment_reference,
+      processedAt: data.processed_at,
+      processedBy: data.processed_by,
+    });
+  } catch (error) {
+    console.error('Process collector payment error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Create generator payment
+app.post("/server/payments/generator", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { collectionId, generatorId, tireCount, paymentPreference } = await c.req.json();
+
+    const { data, error } = await supabase.rpc('create_generator_payment', {
+      p_collection_id: collectionId,
+      p_generator_id: generatorId,
+      p_tire_count: tireCount,
+      p_payment_preference: paymentPreference || 'points',
+    });
+
+    if (error) {
+      console.error('Error creating generator payment:', error);
+      return c.json({ error: 'Error al crear pago del generador' }, 500);
+    }
+
+    // Update user profile in KV if payment is in points
+    if (paymentPreference === 'points') {
+      const generatorProfile = await kv.get(`user:${generatorId}`);
+      if (generatorProfile) {
+        generatorProfile.points = (generatorProfile.points || 0) + data.points_awarded;
+        await kv.set(`user:${generatorId}`, generatorProfile);
+      }
+    }
+
+    return c.json({
+      id: data.id,
+      collectionId: data.collection_id,
+      generatorId: data.generator_id,
+      paymentPreference: data.payment_preference,
+      tireCount: data.tire_count,
+      cashAmount: parseFloat(data.cash_amount),
+      pointsAwarded: data.points_awarded,
+      status: data.status,
+      paymentMethod: data.payment_method,
+      createdAt: data.created_at,
+    });
+  } catch (error) {
+    console.error('Create generator payment error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Get generator payments
+app.get("/server/payments/generator", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const generatorId = c.req.query('generatorId');
+    const status = c.req.query('status');
+    const paymentPreference = c.req.query('paymentPreference');
+    const limit = c.req.query('limit') ? parseInt(c.req.query('limit')!) : 50;
+
+    let query = supabase
+      .from('generator_payments')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (generatorId) {
+      query = query.eq('generator_id', generatorId);
+    }
+    if (status) {
+      query = query.eq('status', status);
+    }
+    if (paymentPreference) {
+      query = query.eq('payment_preference', paymentPreference);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error('Error fetching generator payments:', error);
+      return c.json({ error: 'Error al obtener pagos' }, 500);
+    }
+
+    return c.json(data.map((payment: any) => ({
+      id: payment.id,
+      collectionId: payment.collection_id,
+      generatorId: payment.generator_id,
+      paymentPreference: payment.payment_preference,
+      tireCount: payment.tire_count,
+      cashAmount: parseFloat(payment.cash_amount),
+      pointsAwarded: payment.points_awarded,
+      status: payment.status,
+      paymentMethod: payment.payment_method,
+      paymentReference: payment.payment_reference,
+      createdAt: payment.created_at,
+      processedAt: payment.processed_at,
+      processedBy: payment.processed_by,
+      notes: payment.notes,
+    })));
+  } catch (error) {
+    console.error('Get generator payments error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Process generator payment
+app.post("/server/payments/generator/process", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    // Check if user is admin
+    const userProfile = await kv.get(`user:${user.id}`);
+    if (userProfile?.type !== 'admin') {
+      return c.json({ error: 'Forbidden: Admin access required' }, 403);
+    }
+
+    const { paymentId, paymentMethod, paymentReference, notes } = await c.req.json();
+
+    const { data, error } = await supabase.rpc('process_generator_payment', {
+      p_payment_id: paymentId,
+      p_payment_method: paymentMethod,
+      p_payment_reference: paymentReference || '',
+      p_processed_by: user.id,
+    });
+
+    if (error) {
+      console.error('Error processing generator payment:', error);
+      return c.json({ error: error.message || 'Error al procesar pago' }, 500);
+    }
+
+    // Update notes if provided
+    if (notes) {
+      await supabase
+        .from('generator_payments')
+        .update({ notes })
+        .eq('id', paymentId);
+    }
+
+    // Update user profile in KV with points (for cash payments with bonus points)
+    if (data.payment_preference === 'cash' && data.points_awarded > 0) {
+      const generatorProfile = await kv.get(`user:${data.generator_id}`);
+      if (generatorProfile) {
+        generatorProfile.points = (generatorProfile.points || 0) + data.points_awarded;
+        await kv.set(`user:${data.generator_id}`, generatorProfile);
+      }
+    }
+
+    return c.json({
+      id: data.id,
+      collectionId: data.collection_id,
+      generatorId: data.generator_id,
+      paymentPreference: data.payment_preference,
+      cashAmount: parseFloat(data.cash_amount),
+      pointsAwarded: data.points_awarded,
+      status: data.status,
+      paymentMethod: data.payment_method,
+      paymentReference: data.payment_reference,
+      processedAt: data.processed_at,
+      processedBy: data.processed_by,
+    });
+  } catch (error) {
+    console.error('Process generator payment error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Get payment statistics
+app.get("/server/payments/stats", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const userId = c.req.query('userId');
+    const userType = c.req.query('userType');
+    const dateFrom = c.req.query('dateFrom');
+    const dateTo = c.req.query('dateTo');
+
+    const stats: any = {
+      totalPayments: 0,
+      totalAmount: 0,
+      totalPoints: 0,
+      pendingPayments: 0,
+      completedPayments: 0,
+    };
+
+    if (userType === 'collector') {
+      let query = supabase
+        .from('collector_payments')
+        .select('*');
+
+      if (userId) query = query.eq('collector_id', userId);
+      if (dateFrom) query = query.gte('created_at', dateFrom);
+      if (dateTo) query = query.lte('created_at', dateTo);
+
+      const { data, error } = await query;
+
+      if (!error && data) {
+        stats.totalPayments = data.length;
+        stats.totalAmount = data.reduce((sum, p) => sum + parseFloat(p.payment_amount || 0), 0);
+        stats.totalPoints = data.reduce((sum, p) => sum + (p.points_awarded || 0), 0);
+        stats.pendingPayments = data.filter(p => p.status === 'pending').length;
+        stats.completedPayments = data.filter(p => p.status === 'completed').length;
+        stats.averageDistance = data.length > 0 
+          ? data.reduce((sum, p) => sum + parseFloat(p.distance_km || 0), 0) / data.length 
+          : 0;
+      }
+    } else if (userType === 'generator') {
+      let query = supabase
+        .from('generator_payments')
+        .select('*');
+
+      if (userId) query = query.eq('generator_id', userId);
+      if (dateFrom) query = query.gte('created_at', dateFrom);
+      if (dateTo) query = query.lte('created_at', dateTo);
+
+      const { data, error } = await query;
+
+      if (!error && data) {
+        stats.totalPayments = data.length;
+        stats.totalAmount = data.reduce((sum, p) => sum + parseFloat(p.cash_amount || 0), 0);
+        stats.totalPoints = data.reduce((sum, p) => sum + (p.points_awarded || 0), 0);
+        stats.pendingPayments = data.filter(p => p.status === 'pending').length;
+        stats.completedPayments = data.filter(p => p.status === 'completed').length;
+      }
+    }
+
+    return c.json(stats);
+  } catch (error) {
+    console.error('Get payment stats error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Get collector tire rates
+app.get("/server/payments/rates/collector", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { data, error } = await supabase
+      .from('collector_tire_rates')
+      .select('*')
+      .order('tire_type', { ascending: true })
+      .order('tire_condition', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching collector rates:', error);
+      return c.json({ error: error.message }, 500);
+    }
+
+    return c.json((data || []).map(rate => ({
+      id: rate.id,
+      tireType: rate.tire_type,
+      tireCondition: rate.tire_condition,
+      baseRatePerKm: parseFloat(rate.base_rate_per_km),
+      minPayment: parseFloat(rate.min_payment),
+      bonusPoints: rate.bonus_points,
+      isActive: rate.is_active,
+      createdAt: rate.created_at,
+      updatedAt: rate.updated_at,
+    })));
+  } catch (error) {
+    console.error('Get collector rates error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Update collector tire rate
+app.put("/server/payments/rates/collector/:rateId", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    // Check if user is admin
+    const userProfile = await kv.get(`user:${user.id}`);
+    if (userProfile?.type !== 'admin') {
+      return c.json({ error: 'Forbidden: Admin access required' }, 403);
+    }
+
+    const rateId = c.req.param('rateId');
+    const updates = await c.req.json();
+
+    const updateData: any = { updated_at: new Date().toISOString() };
+    if (updates.baseRatePerKm !== undefined) updateData.base_rate_per_km = updates.baseRatePerKm;
+    if (updates.minPayment !== undefined) updateData.min_payment = updates.minPayment;
+    if (updates.bonusPoints !== undefined) updateData.bonus_points = updates.bonusPoints;
+    if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
+
+    const { data, error } = await supabase
+      .from('collector_tire_rates')
+      .update(updateData)
+      .eq('id', rateId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating collector rate:', error);
+      return c.json({ error: error.message }, 500);
+    }
+
+    return c.json({
+      id: data.id,
+      tireType: data.tire_type,
+      tireCondition: data.tire_condition,
+      baseRatePerKm: parseFloat(data.base_rate_per_km),
+      minPayment: parseFloat(data.min_payment),
+      bonusPoints: data.bonus_points,
+      isActive: data.is_active,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    });
+  } catch (error) {
+    console.error('Update collector rate error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Get generator tire rates
+app.get("/server/payments/rates/generator", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const { data, error } = await supabase
+      .from('generator_tire_rates')
+      .select('*')
+      .order('tire_type', { ascending: true })
+      .order('tire_condition', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching generator rates:', error);
+      return c.json({ error: error.message }, 500);
+    }
+
+    return c.json((data || []).map(rate => ({
+      id: rate.id,
+      tireType: rate.tire_type,
+      tireCondition: rate.tire_condition,
+      pointsPerTire: rate.points_per_tire,
+      cashPerTire: parseFloat(rate.cash_per_tire),
+      minPointsOnCash: rate.min_points_on_cash,
+      isActive: rate.is_active,
+      createdAt: rate.created_at,
+      updatedAt: rate.updated_at,
+    })));
+  } catch (error) {
+    console.error('Get generator rates error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
+  }
+});
+
+// Update generator tire rate
+app.put("/server/payments/rates/generator/:rateId", async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(accessToken);
+
+    if (authError || !user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    // Check if user is admin
+    const userProfile = await kv.get(`user:${user.id}`);
+    if (userProfile?.type !== 'admin') {
+      return c.json({ error: 'Forbidden: Admin access required' }, 403);
+    }
+
+    const rateId = c.req.param('rateId');
+    const updates = await c.req.json();
+
+    const updateData: any = { updated_at: new Date().toISOString() };
+    if (updates.pointsPerTire !== undefined) updateData.points_per_tire = updates.pointsPerTire;
+    if (updates.cashPerTire !== undefined) updateData.cash_per_tire = updates.cashPerTire;
+    if (updates.minPointsOnCash !== undefined) updateData.min_points_on_cash = updates.minPointsOnCash;
+    if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
+
+    const { data, error } = await supabase
+      .from('generator_tire_rates')
+      .update(updateData)
+      .eq('id', rateId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error updating generator rate:', error);
+      return c.json({ error: error.message }, 500);
+    }
+
+    return c.json({
+      id: data.id,
+      tireType: data.tire_type,
+      tireCondition: data.tire_condition,
+      pointsPerTire: data.points_per_tire,
+      cashPerTire: parseFloat(data.cash_per_tire),
+      minPointsOnCash: data.min_points_on_cash,
+      isActive: data.is_active,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    });
+  } catch (error) {
+    console.error('Update generator rate error:', error);
+    return c.json({ error: 'Error interno del servidor' }, 500);
   }
 });
 

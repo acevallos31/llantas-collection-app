@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "lib": ["deno.window"],
+    "strict": true,
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "react"
+  },
+  "imports": {
+    "hono": "npm:hono@^4.0.0",
+    "hono/": "npm:hono/",
+    "@supabase/supabase-js": "jsr:@supabase/supabase-js@^2.49.8"
+  },
+  "tasks": {
+    "dev": "deno run --watch --allow-all server/index.ts"
+  },
+  "lint": {
+    "rules": {
+      "exclude": ["no-explicit-any"]
+    }
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 120,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": false,
+    "proseWrap": "preserve"
+  }
+}

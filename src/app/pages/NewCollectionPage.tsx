@@ -7,6 +7,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Card } from '../components/ui/card';
+import { RadioGroup, RadioGroupItem } from '../components/ui/radio-group';
 import { 
   ChevronLeft, 
   Camera, 
@@ -15,7 +16,9 @@ import {
   Package,
   Plus,
   X,
-  Loader2
+  Loader2,
+  Coins,
+  Banknote
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -32,6 +35,7 @@ export default function NewCollectionPage() {
   const [scheduledDate, setScheduledDate] = useState('');
   const [description, setDescription] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
+  const [paymentPreference, setPaymentPreference] = useState<'points' | 'cash'>('points');
 
   if (user?.type === 'collector') {
     return (
@@ -121,6 +125,8 @@ export default function NewCollectionPage() {
         scheduledDate,
         description: description || undefined,
         photos: photos.length > 0 ? photos : undefined,
+        // @ts-ignore - Campo de pago agregado
+        paymentPreference,
       });
 
       const pointsEarned = tireCount * 30;
@@ -350,6 +356,39 @@ export default function NewCollectionPage() {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
+        </Card>
+
+        {/* Payment Preference */}
+        <Card className="p-6">
+          <Label className="text-base font-semibold mb-3 block">
+            Preferencia de Pago
+          </Label>
+          <RadioGroup value={paymentPreference} onValueChange={(value: 'points' | 'cash') => setPaymentPreference(value)} className="space-y-3">
+            <div className="flex items-start space-x-3 p-4 border-2 rounded-lg hover:border-green-600 transition-colors cursor-pointer" onClick={() => setPaymentPreference('points')}>
+              <RadioGroupItem value="points" id="points" />
+              <div className="flex-1">
+                <Label htmlFor="points" className="font-semibold flex items-center gap-2 cursor-pointer">
+                  <Coins className="w-5 h-5 text-green-600" />
+                  Puntos en la Plataforma
+                </Label>
+                <p className="text-sm text-gray-600 mt-1">
+                  Recibe <span className="font-bold text-green-600">{tireCount * 100} puntos</span> que puedes canjear por recompensas
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start space-x-3 p-4 border-2 rounded-lg hover:border-green-600 transition-colors cursor-pointer" onClick={() => setPaymentPreference('cash')}>
+              <RadioGroupItem value="cash" id="cash" />
+              <div className="flex-1">
+                <Label htmlFor="cash" className="font-semibold flex items-center gap-2 cursor-pointer">
+                  <Banknote className="w-5 h-5 text-green-600" />
+                  Pago en Efectivo
+                </Label>
+                <p className="text-sm text-gray-600 mt-1">
+                  Recibe <span className="font-bold text-green-600">L {(tireCount * 5).toFixed(2)}</span> en efectivo + <span className="font-bold">{tireCount * 5} puntos</span> adicionales
+                </p>
+              </div>
+            </div>
+          </RadioGroup>
         </Card>
 
         {/* Submit */}

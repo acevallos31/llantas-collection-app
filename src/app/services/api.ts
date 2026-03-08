@@ -1,6 +1,16 @@
 // API Service para EcolLantApp - Supabase Backend
 import { projectId, publicAnonKey } from '/utils/supabase/info.tsx';
-import type { User, Collection, CollectionPoint, Reward } from '../mockData';
+import type { 
+  User, 
+  Collection, 
+  CollectionPoint, 
+  Reward,
+  PaymentSettings,
+  CollectorPayment,
+  GeneratorPayment,
+  CollectorTireRate,
+  GeneratorTireRate
+} from '../mockData';
 
 const DEFAULT_API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/server`;
 
@@ -61,6 +71,27 @@ const resolveErrorMessage = (payload: any, fallbackMessage: string) => {
   return fallbackMessage;
 };
 
+const buildApiError = (
+  response: Response,
+  payload: any,
+  fallbackMessage: string,
+  context: string,
+) => {
+  const backendMessage = resolveErrorMessage(payload, fallbackMessage);
+  const detailedMessage = `${backendMessage} (HTTP ${response.status} ${response.statusText})`;
+
+  // Leave a rich log in console so 401 lines in DevTools have actionable context.
+  console.error(`[API:${context}]`, {
+    status: response.status,
+    statusText: response.statusText,
+    url: response.url,
+    backendMessage,
+    payload,
+  });
+
+  return new Error(detailedMessage);
+};
+
 // Helper to get auth headers
 export const getAuthHeaders = (includeAuth = true) => {
   const headers: HeadersInit = {
@@ -101,10 +132,10 @@ export const authAPI = {
       body: JSON.stringify(data),
     });
     
-    const result = await response.json();
-    
+    const result = await parseResponseBody(response);
+
     if (!response.ok) {
-      throw new Error(result.error || 'Error al registrarse');
+      throw buildApiError(response, result, 'Error al registrarse', 'auth.signup');
     }
     
     return result;
@@ -117,10 +148,10 @@ export const authAPI = {
       body: JSON.stringify({ email, password }),
     });
     
-    const result = await response.json();
-    
+    const result = await parseResponseBody(response);
+
     if (!response.ok) {
-      throw new Error(result.error || 'Error al iniciar sesión');
+      throw buildApiError(response, result, 'Error al iniciar sesion', 'auth.signin');
     }
     
     // Store token and user
@@ -140,9 +171,15 @@ export const authAPI = {
       headers: getAuthHeaders(true),
     });
     
-    const result = await response.json();
+    const result = await parseResponseBody(response);
     
     if (!response.ok) {
+      console.warn('[API:auth.session] Invalid session response', {
+        status: response.status,
+        statusText: response.statusText,
+        url: response.url,
+        payload: result,
+      });
       // Clear stored data if session is invalid
       localStorage.removeItem(ACCESS_TOKEN_KEY);
       localStorage.removeItem(USER_KEY);
@@ -176,10 +213,10 @@ export const authAPI = {
       body: JSON.stringify({ currentPassword, newPassword }),
     });
 
-    const result = await response.json();
+    const result = await parseResponseBody(response);
 
     if (!response.ok) {
-      throw new Error(result.error || 'Error al cambiar la contraseña');
+      throw buildApiError(response, result, 'Error al cambiar la contrasena', 'auth.changePassword');
     }
 
     return result;
@@ -192,10 +229,10 @@ export const authAPI = {
       body: JSON.stringify({ currentPassword }),
     });
 
-    const result = await response.json();
+    const result = await parseResponseBody(response);
 
     if (!response.ok) {
-      throw new Error(result.error || 'Error al eliminar la cuenta');
+      throw buildApiError(response, result, 'Error al eliminar la cuenta', 'auth.deleteAccount');
     }
 
     localStorage.removeItem(ACCESS_TOKEN_KEY);
@@ -1262,6 +1299,318 @@ export const uploadAPI = {
       throw new Error(result.error || 'Error al subir foto');
     }
     
+    return result;
+  },
+};
+
+// ==================== PAYMENTS API ====================
+
+export const paymentsAPI = {
+  // Configuración de pagos
+  async getSettings(): Promise<PaymentSettings> {
+    const response = await fetch(`${API_BASE_URL}/payments/settings`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener configuración de pagos'));
+    }
+    return result;
+  },
+
+  async updateSettings(updates: Partial<PaymentSettings>): Promise<PaymentSettings> {
+    const response = await fetch(`${API_BASE_URL}/payments/settings`, {
+      method: 'PUT',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(updates),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al actualizar configuración de pagos'));
+    }
+    return result;
+  },
+
+  // Cálculos
+  async calculateDistance(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number
+  ): Promise<{ distanceKm: number }> {
+    const response = await fetch(`${API_BASE_URL}/payments/calculate-distance`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({ lat1, lng1, lat2, lng2 }),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al calcular distancia'));
+    }
+    return result;
+  },
+
+  async calculateCollectorPayment(distanceKm: number): Promise<{
+    paymentAmount: number;
+    pointsAwarded: number;
+  }> {
+    const response = await fetch(`${API_BASE_URL}/payments/calculate-collector`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({ distanceKm }),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al calcular pago del recolector'));
+    }
+    return result;
+  },
+
+  async calculateGeneratorPayment(
+    tireCount: number,
+    paymentPreference: 'points' | 'cash'
+  ): Promise<{
+    cashAmount: number;
+    pointsAwarded: number;
+  }> {
+    const response = await fetch(`${API_BASE_URL}/payments/calculate-generator`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({ tireCount, paymentPreference }),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al calcular pago del generador'));
+    }
+    return result;
+  },
+
+  // Pagos de recolectores
+  async createCollectorPayment(data: {
+    collectionId: string;
+    collectorId: string;
+    pickupLat: number;
+    pickupLng: number;
+    deliveryLat: number;
+    deliveryLng: number;
+  }): Promise<CollectorPayment> {
+    const response = await fetch(`${API_BASE_URL}/payments/collector`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(data),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al crear pago del recolector'));
+    }
+    return result;
+  },
+
+  async getCollectorPayments(filters?: {
+    collectorId?: string;
+    status?: string;
+    limit?: number;
+  }): Promise<CollectorPayment[]> {
+    const params = new URLSearchParams();
+    if (filters?.collectorId) params.set('collectorId', filters.collectorId);
+    if (filters?.status) params.set('status', filters.status);
+    if (filters?.limit) params.set('limit', filters.limit.toString());
+
+    const response = await fetch(
+      `${API_BASE_URL}/payments/collector?${params.toString()}`,
+      {
+        method: 'GET',
+        headers: getAuthHeaders(true),
+      }
+    );
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener pagos de recolectores'));
+    }
+    return result;
+  },
+
+  async processCollectorPayment(data: {
+    paymentId: string;
+    paymentMethod: 'bank_transfer' | 'cash' | 'digital_wallet';
+    paymentReference: string;
+    notes?: string;
+  }): Promise<CollectorPayment> {
+    const response = await fetch(`${API_BASE_URL}/payments/collector/process`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(data),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al procesar pago del recolector'));
+    }
+    return result;
+  },
+
+  // Pagos de generadores
+  async createGeneratorPayment(data: {
+    collectionId: string;
+    generatorId: string;
+    tireCount: number;
+    paymentPreference: 'points' | 'cash';
+  }): Promise<GeneratorPayment> {
+    const response = await fetch(`${API_BASE_URL}/payments/generator`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(data),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al crear pago del generador'));
+    }
+    return result;
+  },
+
+  async getGeneratorPayments(filters?: {
+    generatorId?: string;
+    status?: string;
+    paymentPreference?: 'points' | 'cash';
+    limit?: number;
+  }): Promise<GeneratorPayment[]> {
+    const params = new URLSearchParams();
+    if (filters?.generatorId) params.set('generatorId', filters.generatorId);
+    if (filters?.status) params.set('status', filters.status);
+    if (filters?.paymentPreference) params.set('paymentPreference', filters.paymentPreference);
+    if (filters?.limit) params.set('limit', filters.limit.toString());
+
+    const response = await fetch(
+      `${API_BASE_URL}/payments/generator?${params.toString()}`,
+      {
+        method: 'GET',
+        headers: getAuthHeaders(true),
+      }
+    );
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener pagos de generadores'));
+    }
+    return result;
+  },
+
+  async processGeneratorPayment(data: {
+    paymentId: string;
+    paymentMethod: 'bank_transfer' | 'cash' | 'digital_wallet' | 'points';
+    paymentReference?: string;
+    notes?: string;
+  }): Promise<GeneratorPayment> {
+    const response = await fetch(`${API_BASE_URL}/payments/generator/process`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(data),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al procesar pago del generador'));
+    }
+    return result;
+  },
+
+  // Tarifas por tipo y condición de llanta - Recolectores
+  async getCollectorRates(): Promise<CollectorTireRate[]> {
+    const response = await fetch(`${API_BASE_URL}/payments/rates/collector`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener tarifas de recolectores'));
+    }
+    return result;
+  },
+
+  async updateCollectorRate(rateId: string, updates: Partial<CollectorTireRate>): Promise<CollectorTireRate> {
+    const response = await fetch(`${API_BASE_URL}/payments/rates/collector/${rateId}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(updates),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al actualizar tarifa de recolector'));
+    }
+    return result;
+  },
+
+  // Tarifas por tipo y condición de llanta - Generadores
+  async getGeneratorRates(): Promise<GeneratorTireRate[]> {
+    const response = await fetch(`${API_BASE_URL}/payments/rates/generator`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener tarifas de generadores'));
+    }
+    return result;
+  },
+
+  async updateGeneratorRate(rateId: string, updates: Partial<GeneratorTireRate>): Promise<GeneratorTireRate> {
+    const response = await fetch(`${API_BASE_URL}/payments/rates/generator/${rateId}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(updates),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al actualizar tarifa de generador'));
+    }
+    return result;
+  },
+
+  // Estadísticas de pagos
+  async getPaymentStats(filters?: {
+    userId?: string;
+    userType?: 'generator' | 'collector';
+    dateFrom?: string;
+    dateTo?: string;
+  }): Promise<{
+    totalPayments: number;
+    totalAmount: number;
+    totalPoints: number;
+    averageDistance?: number;
+    pendingPayments: number;
+    completedPayments: number;
+  }> {
+    const params = new URLSearchParams();
+    if (filters?.userId) params.set('userId', filters.userId);
+    if (filters?.userType) params.set('userType', filters.userType);
+    if (filters?.dateFrom) params.set('dateFrom', filters.dateFrom);
+    if (filters?.dateTo) params.set('dateTo', filters.dateTo);
+
+    const response = await fetch(
+      `${API_BASE_URL}/payments/stats?${params.toString()}`,
+      {
+        method: 'GET',
+        headers: getAuthHeaders(true),
+      }
+    );
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener estadísticas de pagos'));
+    }
     return result;
   },
 };

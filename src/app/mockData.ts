@@ -25,6 +25,15 @@ export interface Collection {
   photos?: string[];
   points: number;
   description?: string;
+  // Campos de pago
+  pickupLat?: number;
+  pickupLng?: number;
+  deliveryLat?: number;
+  deliveryLng?: number;
+  distanceKm?: number;
+  generatorPaymentPreference?: 'points' | 'cash';
+  collectorPaymentAmount?: number;
+  generatorPaymentAmount?: number;
 }
 
 export interface CollectionPoint {
@@ -47,6 +56,82 @@ export interface Reward {
   category: string;
   imageUrl?: string;
   available: boolean;
+}
+
+export interface PaymentSettings {
+  id: number;
+  paymentPerKm: number;
+  minPaymentAmount: number;
+  minCollectorPoints: number;
+  pointsPerTire: number;
+  cashPaymentPerTire: number;
+  minGeneratorPointsOnCash: number;
+  currency: string;
+  updatedAt: string;
+}
+
+export interface CollectorTireRate {
+  id: string;
+  tireType: 'Automóvil' | 'Motocicleta' | 'Camión' | 'Bicicleta' | 'Autobús' | 'Otro';
+  tireCondition: 'excelente' | 'buena' | 'regular' | 'desgastada';
+  baseRatePerKm: number;
+  minPayment: number;
+  bonusPoints: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GeneratorTireRate {
+  id: string;
+  tireType: 'Automóvil' | 'Motocicleta' | 'Camión' | 'Bicicleta' | 'Autobús' | 'Otro';
+  tireCondition: 'excelente' | 'buena' | 'regular' | 'desgastada';
+  pointsPerTire: number;
+  cashPerTire: number;
+  minPointsOnCash: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CollectorPayment {
+  id: string;
+  collectionId: string;
+  collectorId: string;
+  pickupLat: number;
+  pickupLng: number;
+  deliveryLat: number;
+  deliveryLng: number;
+  distanceKm: number;
+  tireType?: string;
+  tireCondition?: string;
+  paymentAmount: number;
+  pointsAwarded: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  paymentMethod?: 'bank_transfer' | 'cash' | 'digital_wallet';
+  paymentReference?: string;
+  createdAt: string;
+  processedAt?: string;
+  processedBy?: string;
+  notes?: string;
+}
+
+export interface GeneratorPayment {
+  id: string;
+  collectionId: string;
+  generatorId: string;
+  paymentPreference: 'points' | 'cash';
+  tireCount: number;
+  tireCondition?: string;
+  cashAmount: number;
+  pointsAwarded: number;
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'cancelled';
+  paymentMethod?: 'bank_transfer' | 'cash' | 'digital_wallet' | 'points';
+  paymentReference?: string;
+  createdAt: string;
+  processedAt?: string;
+  processedBy?: string;
+  notes?: string;
 }
 
 export const mockUser: User = {

@@ -2196,6 +2196,12 @@ export default function AdminDashboardPage() {
                 <p className="text-sm text-gray-600 mt-1">Administra el catálogo de recompensas, su asignación a usuarios y las tarifas monetarias (LPS).</p>
                 <Button className="mt-3" onClick={() => navigate('/admin-rewards-pricing')}>Abrir módulo de recompensas</Button>
               </Card>
+
+              <Card className="p-4 bg-gradient-to-r from-green-50 to-emerald-50 border-green-200">
+                <h3 className="font-semibold flex items-center gap-2 text-green-800">💰 Gestión de Pagos</h3>
+                <p className="text-sm text-gray-700 mt-1">Administra los pagos a recolectores y generadores, configura tarifas y procesa transacciones pendientes.</p>
+                <Button className="mt-3 bg-green-600 hover:bg-green-700" onClick={() => navigate('/admin-payments')}>Abrir módulo de pagos</Button>
+              </Card>
             </TabsContent>
           </Tabs>
         )}

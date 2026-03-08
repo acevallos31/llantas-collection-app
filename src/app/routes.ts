@@ -1,17 +1,18 @@
 import { createBrowserRouter } from 'react-router';
-import { ProtectedLayout } from './components/ProtectedLayout';
-import LoginPage from './pages/LoginPage';
-import HomePage from './pages/HomePage';
-import ProfilePage from './pages/ProfilePage';
-import HistoryPage from './pages/HistoryPage';
-import RewardsPage from './pages/RewardsPage';
-import NewCollectionPage from './pages/NewCollectionPage';
-import SettingsPage from './pages/SettingsPage';
-import CollectionDetailPage from './pages/CollectionDetailPage';
-import CollectorDashboardPage from './pages/CollectorDashboardPage';
-import AdminPointsPage from './pages/AdminPointsPage';
-import AdminDashboardPage from './pages/AdminDashboardPage';
-import AdminRewardsPricingPage from './pages/AdminRewardsPricingPage';
+import { ProtectedLayout } from './components/ProtectedLayout.tsx';
+import LoginPage from './pages/LoginPage.tsx';
+import HomePage from './pages/HomePage.tsx';
+import ProfilePage from './pages/ProfilePage.tsx';
+import HistoryPage from './pages/HistoryPage.tsx';
+import RewardsPage from './pages/RewardsPage.tsx';
+import NewCollectionPage from './pages/NewCollectionPage.tsx';
+import SettingsPage from './pages/SettingsPage.tsx';
+import CollectionDetailPage from './pages/CollectionDetailPage.tsx';
+import CollectorDashboardPage from './pages/CollectorDashboardPage.tsx';
+import AdminPointsPage from './pages/AdminPointsPage.tsx';
+import AdminDashboardPage from './pages/AdminDashboardPage.tsx';
+import AdminRewardsPricingPage from './pages/AdminRewardsPricingPage.tsx';
+import AdminPaymentsPage from './pages/AdminPaymentsPage.tsx';
 
 export const router = createBrowserRouter([
   {
@@ -65,6 +66,10 @@ export const router = createBrowserRouter([
       {
         path: 'admin-rewards-pricing',
         Component: AdminRewardsPricingPage,
+      },
+      {
+        path: 'admin-payments',
+        Component: AdminPaymentsPage,
       },
     ],
   },
