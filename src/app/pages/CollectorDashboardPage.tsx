@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext.tsx';
 import { collectorAPI, collectionsAPI } from '../services/api.js';
 import type { Collection } from '../mockData.ts';
+import CollectionMap from '../components/CollectionMap.tsx';
 import { Card } from '../components/ui/card.tsx';
 import { Button } from '../components/ui/button.tsx';
 import { Badge } from '../components/ui/badge.tsx';
@@ -66,6 +67,7 @@ export default function CollectorDashboardPage() {
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeSuggestions, setRouteSuggestions] = useState<RouteSuggestion[]>([]);
   const [removedCollectionIds, setRemovedCollectionIds] = useState<Set<string>>(new Set());
+  const [showRouteMap, setShowRouteMap] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const requestPollRef = useRef<number | null>(null);
   const answerPollRef = useRef<number | null>(null);
@@ -592,23 +594,49 @@ export default function CollectorDashboardPage() {
                         <p className="text-sm text-yellow-800">Se removieron todas las paradas. Restaura alguna para continuar.</p>
                       </div>
                     ) : (
-                      <div className="bg-emerald-50 border border-emerald-200 rounded p-2 mb-3">
-                        <p className="text-xs font-semibold text-emerald-900">Compensación de ruta:</p>
-                        <div className="grid grid-cols-3 gap-2 mt-1">
-                          <div>
-                            <p className="text-xs text-emerald-700">Flete</p>
-                            <p className="font-bold text-emerald-600">{totalFreight.toFixed(2)} HNL</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-emerald-700">Bonus</p>
-                            <p className="font-bold text-emerald-600">+{totalBonus} pts</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-emerald-700">Score</p>
-                            <p className="font-bold text-emerald-600">{firstItem.optimization.routeScore.toFixed(3)}</p>
+                      <>
+                        <div className="bg-emerald-50 border border-emerald-200 rounded p-2 mb-3">
+                          <p className="text-xs font-semibold text-emerald-900">Compensación de ruta:</p>
+                          <div className="grid grid-cols-3 gap-2 mt-1">
+                            <div>
+                              <p className="text-xs text-emerald-700">Flete</p>
+                              <p className="font-bold text-emerald-600">{totalFreight.toFixed(2)} HNL</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-emerald-700">Bonus</p>
+                              <p className="font-bold text-emerald-600">+{totalBonus} pts</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-emerald-700">Score</p>
+                              <p className="font-bold text-emerald-600">{firstItem.optimization.routeScore.toFixed(3)}</p>
+                            </div>
                           </div>
                         </div>
-                      </div>
+
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="w-full mb-3"
+                          onClick={() => setShowRouteMap(!showRouteMap)}
+                        >
+                          {showRouteMap ? 'Ocultar mapa de ruta' : 'Ver mapa de ruta'}
+                        </Button>
+
+                        {showRouteMap && (
+                          <div className="mb-3 rounded-lg overflow-hidden border border-gray-300">
+                            <CollectionMap
+                              points={[]}
+                              collections={routeItems.map(item => ({
+                                ...(collections.find(c => c.id === item.collectionId) || {}),
+                                id: item.collectionId,
+                                address: item.pickupAddress,
+                              } as any))}
+                              userLocation={null}
+                              heightClassName="h-[300px]"
+                            />
+                          </div>
+                        )}
+                      </>
                     )}
 
                     {routeItems.length > 0 && (
