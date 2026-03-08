@@ -19,7 +19,7 @@ export default function BottomNav() {
     ? [
         { path: '/collector', icon: Truck, label: 'Recolector' },
         { path: '/history', icon: History, label: 'Historial' },
-        { path: '/profile', icon: Home, label: 'Perfil' },
+        { path: '/rewards', icon: Gift, label: 'Premios' },
         { path: '/settings', icon: Settings, label: 'Ajustes' },
       ]
     : [
