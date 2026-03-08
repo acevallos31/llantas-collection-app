@@ -17,7 +17,9 @@ export interface Collection {
   userId: string;
   tireCount: number;
   tireType: string;
-  status: 'pending' | 'in-progress' | 'completed' | 'cancelled';
+  tireCondition?: string;
+  collectionItems?: CollectionItem[];
+  status: 'available' | 'pending' | 'in-progress' | 'completed' | 'cancelled';
   address: string;
   coordinates: { lat: number; lng: number };
   scheduledDate?: string;
@@ -25,6 +27,8 @@ export interface Collection {
   photos?: string[];
   points: number;
   description?: string;
+  collectorId?: string | null;
+  collectorName?: string | null;
   // Campos de pago
   pickupLat?: number;
   pickupLng?: number;
@@ -32,8 +36,16 @@ export interface Collection {
   deliveryLng?: number;
   distanceKm?: number;
   generatorPaymentPreference?: 'points' | 'cash';
+  collectorPaymentPreference?: 'points' | 'cash_points';
   collectorPaymentAmount?: number;
+  collectorBonusPoints?: number;
   generatorPaymentAmount?: number;
+}
+
+export interface CollectionItem {
+  tireType: string;
+  tireCondition: 'excelente' | 'buena' | 'regular' | 'desgastada';
+  tireCount: number;
 }
 
 export interface CollectionPoint {

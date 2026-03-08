@@ -16,7 +16,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../components/ui/alert-dialog.tsx';
-import { Loader2, Truck, MapPin, CheckCircle2, PlayCircle, XCircle, Route } from 'lucide-react';
+import { ChevronLeft, Loader2, QrCode, Route, CalendarDays, MapPin, Package, Truck, CheckCircle2, PlayCircle, XCircle, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL, getAuthHeaders, ANALYTICS_SESSION_ID_KEY } from '../services/api.js';
 
@@ -42,6 +42,13 @@ type RouteSuggestion = {
     generatorPerTire: number;
     generatorTotal: number;
     collectorFreight: number;
+    collectorBonusPoints: number;
+    generatorRewardValue: number;
+  };
+  optimization: {
+    routeScore: number;
+    valueScore: number;
+    recommendation: string;
   };
 };
 
@@ -58,6 +65,7 @@ export default function CollectorDashboardPage() {
   const [isScreenShareActive, setIsScreenShareActive] = useState(false);
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeSuggestions, setRouteSuggestions] = useState<RouteSuggestion[]>([]);
+  const [removedCollectionIds, setRemovedCollectionIds] = useState<Set<string>>(new Set());
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const requestPollRef = useRef<number | null>(null);
   const answerPollRef = useRef<number | null>(null);
@@ -68,6 +76,29 @@ export default function CollectorDashboardPage() {
     if (!isCollector) return;
     void loadCollections();
     void loadRouteSuggestions();
+  }, [isCollector]);
+
+  useEffect(() => {
+    if (!isCollector) return;
+
+    const intervalId = window.setInterval(() => {
+      void loadCollections();
+      void loadRouteSuggestions();
+    }, 15000);
+
+    const handleFocus = () => {
+      void loadCollections();
+      void loadRouteSuggestions();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+    };
   }, [isCollector]);
 
   const loadRouteSuggestions = async () => {
@@ -354,7 +385,12 @@ export default function CollectorDashboardPage() {
       setLoading(true);
       const all = await collectionsAPI.getAll();
       const actionable = all.filter(
-        (item: Collection) => item.status === 'pending' || item.status === 'in-progress',
+        (item: Collection) => {
+          const isAvailable = item.status === 'available' || (item.status === 'pending' && !item.collectorId);
+          const isMine = item.collectorId === user?.id;
+          const isMyQueue = (item.status === 'pending' || item.status === 'in-progress') && isMine;
+          return isAvailable || isMyQueue;
+        },
       );
       setCollections(actionable);
     } catch (error: any) {
@@ -365,30 +401,69 @@ export default function CollectorDashboardPage() {
     }
   };
 
-  const pendingCount = useMemo(
-    () => collections.filter((item) => item.status === 'pending').length,
+  const normalizeCollectionStatus = (item: Collection) => {
+    if (item.status === 'pending' && !item.collectorId) return 'available';
+    return item.status;
+  };
+
+  const availableCount = useMemo(
+    () => collections.filter((item) => normalizeCollectionStatus(item) === 'available').length,
     [collections],
+  );
+
+  const pendingCount = useMemo(
+    () => collections.filter((item) => item.status === 'pending' && item.collectorId === user?.id).length,
+    [collections, user?.id],
   );
 
   const inProgressCount = useMemo(
-    () => collections.filter((item) => item.status === 'in-progress').length,
-    [collections],
+    () => collections.filter((item) => item.status === 'in-progress' && item.collectorId === user?.id).length,
+    [collections, user?.id],
   );
 
-  const updateStatus = async (collectionId: string, status: 'pending' | 'in-progress' | 'completed') => {
+  const updateStatus = async (
+    collectionId: string,
+    status: 'available' | 'pending' | 'in-progress' | 'completed',
+    extra: Partial<Collection> = {},
+  ) => {
     try {
       setUpdatingId(collectionId);
-      await collectionsAPI.update(collectionId, { status });
+      await collectionsAPI.update(collectionId, { status, ...extra });
       toast.success(
         status === 'completed'
           ? 'Recolección completada'
-          : status === 'pending'
-            ? 'Recolección devuelta a pendientes'
-            : 'Recolección tomada',
+          : status === 'available'
+            ? 'Recolección liberada a disponibles'
+            : status === 'pending'
+              ? 'Recolección aceptada y en pendientes'
+              : 'Recolección iniciada',
       );
       await loadCollections();
+      await loadRouteSuggestions();
     } catch (error: any) {
       toast.error(error.message || 'No se pudo actualizar el estado');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const takeCollection = async (collectionId: string, paymentData?: { collectorFreight?: number; collectorBonusPoints?: number }) => {
+    try {
+      setUpdatingId(collectionId);
+      await collectorAPI.takeCollection(collectionId, paymentData);
+      toast.success('Ruta tomada. La recolección pasó a Pendientes.');
+      setRemovedCollectionIds(new Set());
+      await loadCollections();
+      await loadRouteSuggestions();
+    } catch (error: any) {
+      const message = String(error?.message || 'No se pudo tomar la ruta');
+      if (message.toLowerCase().includes('no longer available') || message.toLowerCase().includes('taken by another')) {
+        toast.info('Otro recolector tomó esta recolección. Actualizando mejores rutas...');
+        await loadCollections();
+        await loadRouteSuggestions();
+      } else {
+        toast.error(message);
+      }
     } finally {
       setUpdatingId(null);
     }
@@ -414,7 +489,11 @@ export default function CollectorDashboardPage() {
         <h1 className="text-2xl font-bold">Panel Recolector</h1>
         <p className="text-sm text-emerald-100 mt-1">Gestiona rutas y estados de recolección en tiempo real.</p>
 
-        <div className="grid grid-cols-2 gap-3 mt-5">
+        <div className="grid grid-cols-3 gap-3 mt-5">
+          <Card className="p-3 bg-white/10 border-white/20 text-center">
+            <p className="text-xs text-emerald-100">Disponibles</p>
+            <p className="text-2xl font-bold">{availableCount}</p>
+          </Card>
           <Card className="p-3 bg-white/10 border-white/20 text-center">
             <p className="text-xs text-emerald-100">Pendientes</p>
             <p className="text-2xl font-bold">{pendingCount}</p>
@@ -431,9 +510,9 @@ export default function CollectorDashboardPage() {
           <div className="flex items-center justify-between gap-3 mb-3">
             <div>
               <p className="font-semibold text-blue-900 flex items-center gap-2">
-                <Route className="w-4 h-4" /> Rutas sugeridas para hoy
+                <Route className="w-4 h-4" /> Mejor ruta sugerida para hoy
               </p>
-              <p className="text-sm text-blue-800">Basadas en tu ubicación, recolecciones activas y centros de acopio.</p>
+              <p className="text-sm text-blue-800">Optimizada por distancia, valor y proximidad.</p>
             </div>
             <Button size="sm" variant="outline" onClick={() => void loadRouteSuggestions()} disabled={routeLoading}>
               {routeLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Actualizar'}
@@ -447,21 +526,122 @@ export default function CollectorDashboardPage() {
           ) : routeSuggestions.length === 0 ? (
             <p className="text-sm text-blue-900">No hay rutas sugeridas en este momento.</p>
           ) : (
-            <div className="space-y-2">
-              {routeSuggestions.slice(0, 3).map((item) => (
-                <div key={item.collectionId} className="bg-white border border-blue-200 rounded-lg p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-medium text-sm">Recolectar {item.tireCount} llantas ({item.tireType})</p>
-                    <Badge variant="outline">{item.distance.totalKm.toFixed(1)} km</Badge>
+            <div className="space-y-3">
+              {routeSuggestions.slice(0, 1).map((firstItem, routeIdx) => {
+                const allRouteItems = routeSuggestions.slice(0, Math.min(5, routeSuggestions.length));
+                const routeItems = allRouteItems.filter(item => !removedCollectionIds.has(item.collectionId));
+                const totalTires = routeItems.reduce((sum, item) => sum + item.tireCount, 0);
+                const totalFreight = routeItems.reduce((sum, item) => sum + item.estimatedCompensation.collectorFreight, 0);
+                const totalBonus = routeItems.reduce((sum, item) => sum + item.estimatedCompensation.collectorBonusPoints, 0);
+                const totalDistanceKm = routeItems.reduce((sum, item) => sum + item.distance.totalKm, 0);
+
+                return (
+                  <div key={`route-${routeIdx}`} className="bg-white border-2 border-blue-400 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h3 className="font-bold text-blue-900">Ruta Optimizada #{routeIdx + 1}</h3>
+                        <p className="text-xs text-blue-700">{routeItems.length} parada{routeItems.length > 1 ? 's' : ''} • {totalTires} llantas totales</p>
+                      </div>
+                      <Badge className="bg-blue-600">{totalDistanceKm.toFixed(1)} km</Badge>
+                    </div>
+
+                    <div className="space-y-2 mb-3">
+                      {allRouteItems.map((item, idx) => {
+                        const isRemoved = removedCollectionIds.has(item.collectionId);
+                        return (
+                          <div key={item.collectionId} className={`rounded p-2 border transition ${isRemoved ? 'bg-gray-100 border-gray-300 opacity-50' : 'bg-blue-50 border-blue-200'}`}>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex-1">
+                                <p className={`text-sm font-medium ${isRemoved ? 'line-through text-gray-600' : 'text-blue-900'}`}>
+                                  Parada {idx + 1}: {item.tireCount} llantas ({item.tireType})
+                                </p>
+                                <p className="text-xs text-gray-600">{item.pickupAddress}</p>
+                                {idx === allRouteItems.length - 1 && !isRemoved && (
+                                  <p className="text-xs text-emerald-700 mt-1">
+                                    →  {item.dropoffPoint.name}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <p className="text-xs font-semibold text-blue-700">{item.distance.totalKm.toFixed(1)} km</p>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className={`h-6 w-6 p-0 ${isRemoved ? 'text-gray-400 hover:text-green-600' : 'text-red-500 hover:text-red-700'}`}
+                                  onClick={() => {
+                                    const newRemoved = new Set(removedCollectionIds);
+                                    if (isRemoved) {
+                                      newRemoved.delete(item.collectionId);
+                                    } else {
+                                      newRemoved.add(item.collectionId);
+                                    }
+                                    setRemovedCollectionIds(newRemoved);
+                                  }}
+                                >
+                                  {isRemoved ? '↩' : <Trash2 className="w-3 h-3" />}
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {routeItems.length === 0 ? (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded p-3 mb-3 text-center">
+                        <p className="text-sm text-yellow-800">Se removieron todas las paradas. Restaura alguna para continuar.</p>
+                      </div>
+                    ) : (
+                      <div className="bg-emerald-50 border border-emerald-200 rounded p-2 mb-3">
+                        <p className="text-xs font-semibold text-emerald-900">Compensación de ruta:</p>
+                        <div className="grid grid-cols-3 gap-2 mt-1">
+                          <div>
+                            <p className="text-xs text-emerald-700">Flete</p>
+                            <p className="font-bold text-emerald-600">{totalFreight.toFixed(2)} HNL</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-emerald-700">Bonus</p>
+                            <p className="font-bold text-emerald-600">+{totalBonus} pts</p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-emerald-700">Score</p>
+                            <p className="font-bold text-emerald-600">{firstItem.optimization.routeScore.toFixed(3)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {routeItems.length > 0 && (
+                      <>
+                        <p className="text-xs text-blue-800 mb-3">{firstItem.optimization.recommendation}</p>
+                        <Button
+                          className="w-full bg-blue-600 hover:bg-blue-700"
+                          onClick={() => void takeCollection(firstItem.collectionId, {
+                            collectorFreight: firstItem.estimatedCompensation.collectorFreight,
+                            collectorBonusPoints: firstItem.estimatedCompensation.collectorBonusPoints,
+                          })}
+                          disabled={updatingId === firstItem.collectionId || routeItems.length === 0}
+                        >
+                          {updatingId === firstItem.collectionId ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <>
+                              <PlayCircle className="w-4 h-4 mr-2" />
+                              Comenzar ruta ({routeItems.length} parada{routeItems.length > 1 ? 's' : ''})
+                            </>
+                          )}
+                        </Button>
+                      </>
+                    )}
                   </div>
-                  <p className="text-xs text-gray-700 mt-1">Pickup: {item.pickupAddress}</p>
-                  <p className="text-xs text-gray-700">Centro sugerido: {item.dropoffPoint.name}</p>
-                  <p className="text-xs text-emerald-700 mt-1">
-                    Pago cliente: {item.estimatedCompensation.generatorTotal.toFixed(2)} {item.estimatedCompensation.currency} ·
-                    Flete recolector: {item.estimatedCompensation.collectorFreight.toFixed(2)} {item.estimatedCompensation.currency}
-                  </p>
-                </div>
-              ))}
+                );
+              })}
+
+              {routeSuggestions.length > 5 && (
+                <p className="text-xs text-gray-600 text-center">
+                  +{routeSuggestions.length - 5} ruta{routeSuggestions.length - 5 > 1 ? 's' : ''} adicional{routeSuggestions.length - 5 > 1 ? 'es' : ''} disponible{routeSuggestions.length - 5 > 1 ? 's' : ''}
+                </p>
+              )}
             </div>
           )}
         </Card>
@@ -516,6 +696,12 @@ export default function CollectorDashboardPage() {
         ) : (
           collections.map((collection) => (
             <Card key={collection.id} className="p-4">
+              {(() => {
+                const normalizedStatus = normalizeCollectionStatus(collection);
+                const isAssignedToMe = collection.collectorId === user?.id;
+
+                return (
+                  <>
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="font-semibold">{collection.tireType} - {collection.tireCount} llantas</p>
@@ -524,48 +710,81 @@ export default function CollectorDashboardPage() {
                     {collection.address}
                   </p>
                 </div>
-                <Badge variant={collection.status === 'in-progress' ? 'secondary' : 'outline'}>
-                  {collection.status === 'pending' ? 'Pendiente' : 'En proceso'}
+                <Badge variant={normalizedStatus === 'in-progress' ? 'secondary' : 'outline'}>
+                  {normalizedStatus === 'available'
+                    ? 'Disponible'
+                    : normalizedStatus === 'pending'
+                      ? 'Pendiente'
+                      : 'En proceso'}
                 </Badge>
               </div>
 
-              <div className="mt-3 flex gap-2">
-                {collection.status === 'pending' && (
-                  <Button
-                    className="flex-1 bg-blue-600 hover:bg-blue-700"
-                    onClick={() => updateStatus(collection.id, 'in-progress')}
-                    disabled={updatingId === collection.id}
-                  >
-                    {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 mr-2" />}
-                    Tomar
+              <div className="mt-3 space-y-2">
+                <div className="flex gap-2">
+                  {normalizedStatus === 'available' && (
+                    <Button
+                      className="flex-1 bg-blue-600 hover:bg-blue-700"
+                      onClick={() => void takeCollection(collection.id)}
+                      disabled={updatingId === collection.id}
+                    >
+                      {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 mr-2" />}
+                      Tomar ruta
+                    </Button>
+                  )}
+
+                  {normalizedStatus === 'pending' && isAssignedToMe && (
+                    <Button
+                      className="flex-1 bg-amber-600 hover:bg-amber-700"
+                      onClick={() => void updateStatus(collection.id, 'in-progress')}
+                      disabled={updatingId === collection.id}
+                    >
+                      {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 mr-2" />}
+                      Iniciar ruta
+                    </Button>
+                  )}
+
+                  {(normalizedStatus === 'pending' || normalizedStatus === 'in-progress') && isAssignedToMe && (
+                    <Button
+                      variant="outline"
+                      className="border-red-300 text-red-700 hover:bg-red-50"
+                      onClick={() => setCancelTarget(collection)}
+                      disabled={updatingId === collection.id}
+                    >
+                      {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4 mr-2" />}
+                      Liberar
+                    </Button>
+                  )}
+
+                  <Button variant="outline" onClick={() => navigate(`/history/${collection.id}`)}>
+                    Detalle
                   </Button>
+                </div>
+
+                {(normalizedStatus === 'pending' || normalizedStatus === 'in-progress') && isAssignedToMe && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <Button
+                      className="bg-green-600 hover:bg-green-700 text-sm"
+                      onClick={() => void updateStatus(collection.id, 'completed', { collectorPaymentPreference: 'cash_points' })}
+                      disabled={updatingId === collection.id}
+                    >
+                      {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                      Efectivo + Puntos
+                    </Button>
+
+                    <Button
+                      className="bg-emerald-700 hover:bg-emerald-800 text-sm"
+                      onClick={() => void updateStatus(collection.id, 'completed', { collectorPaymentPreference: 'points' })}
+                      disabled={updatingId === collection.id}
+                    >
+                      {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                      Solo Puntos
+                    </Button>
+                  </div>
                 )}
-
-                {collection.status === 'in-progress' && (
-                  <Button
-                    variant="outline"
-                    className="border-red-300 text-red-700 hover:bg-red-50"
-                    onClick={() => setCancelTarget(collection)}
-                    disabled={updatingId === collection.id}
-                  >
-                    {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4 mr-2" />}
-                    Cancelar
-                  </Button>
-                )}
-
-                <Button
-                  className="flex-1 bg-green-600 hover:bg-green-700"
-                  onClick={() => updateStatus(collection.id, 'completed')}
-                  disabled={updatingId === collection.id}
-                >
-                  {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
-                  Completar
-                </Button>
-
-                <Button variant="outline" onClick={() => navigate(`/history/${collection.id}`)}>
-                  Detalle
-                </Button>
               </div>
+                  </>
+                );
+              })()}
             </Card>
           ))
         )}
@@ -577,7 +796,7 @@ export default function CollectorDashboardPage() {
             <AlertDialogTitle>Cancelar toma de recoleccion</AlertDialogTitle>
             <AlertDialogDescription>
               {cancelTarget
-                ? `Vas a liberar la recoleccion de ${cancelTarget.tireCount} llantas (${cancelTarget.tireType}). Esta accion la devolvera a estado "Pendiente" para poder tomarla nuevamente.`
+                ? `Vas a liberar la recoleccion de ${cancelTarget.tireCount} llantas (${cancelTarget.tireType}). Esta accion la devolvera a estado "Disponible" para que otro recolector pueda tomarla.`
                 : 'Confirma si deseas liberar esta recoleccion.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -590,7 +809,7 @@ export default function CollectorDashboardPage() {
               onClick={(event) => {
                 if (!cancelTarget) return;
                 event.preventDefault();
-                void updateStatus(cancelTarget.id, 'pending').then(() => {
+                void updateStatus(cancelTarget.id, 'available').then(() => {
                   setCancelTarget(null);
                 });
               }}

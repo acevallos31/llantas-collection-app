@@ -121,9 +121,29 @@ export default function CollectionDetailPage() {
               <p className="text-sm text-gray-500">Estado actual</p>
               <Badge className="mt-1 bg-green-600">{stageLabels[trace?.currentStage || 'registrada'] || trace?.currentStage || 'Registrada'}</Badge>
             </div>
-            <div className="text-right">
-              <p className="text-sm text-gray-500">Puntos</p>
-              <p className="font-bold text-green-600">+{collection.points}</p>
+            <div className="text-right space-y-2">
+              {collection.generatorPaymentAmount && collection.generatorPaymentAmount > 0 && (
+                <div>
+                  <p className="text-sm text-gray-500">Generador recibe</p>
+                  <p className="font-bold text-blue-600">+{collection.generatorPaymentAmount.toFixed(2)} HNL</p>
+                </div>
+              )}
+              {collection.collectorPaymentAmount && collection.collectorPaymentAmount > 0 && (
+                <div>
+                  <p className="text-sm text-gray-500">Recolector gana</p>
+                  <p className="font-bold text-emerald-600">{collection.collectorPaymentAmount.toFixed(2)} HNL</p>
+                </div>
+              )}
+              {collection.collectorBonusPoints && collection.collectorBonusPoints > 0 && (
+                <div>
+                  <p className="text-sm text-gray-500">Recolector bonus</p>
+                  <p className="font-bold text-emerald-600">+{collection.collectorBonusPoints} pts</p>
+                </div>
+              )}
+              <div>
+                <p className="text-sm text-gray-500">Puntos generador</p>
+                <p className="font-bold text-green-600">+{collection.points}</p>
+              </div>
             </div>
           </div>
 

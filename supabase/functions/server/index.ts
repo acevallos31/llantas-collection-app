@@ -1664,17 +1664,47 @@ app.post("/server/collections", async (c) => {
 
     const collectionData = await c.req.json();
     const collectionId = crypto.randomUUID();
+
+    const allowedConditions = new Set(['excelente', 'buena', 'regular', 'desgastada']);
+    const normalizeItem = (item: any) => {
+      const tireType = String(item?.tireType || 'Otro').trim() || 'Otro';
+      const rawCondition = String(item?.tireCondition || 'regular').toLowerCase().trim();
+      const tireCondition = allowedConditions.has(rawCondition) ? rawCondition : 'regular';
+      const tireCount = Math.max(1, Number.parseInt(String(item?.tireCount || 1), 10) || 1);
+      return { tireType, tireCondition, tireCount };
+    };
+
+    const incomingItems = Array.isArray(collectionData.collectionItems)
+      ? collectionData.collectionItems.map(normalizeItem)
+      : [];
+
+    const fallbackItem = normalizeItem({
+      tireType: collectionData.tireType,
+      tireCondition: collectionData.tireCondition,
+      tireCount: collectionData.tireCount,
+    });
+
+    const collectionItems = incomingItems.length > 0 ? incomingItems : [fallbackItem];
+    const totalTireCount = collectionItems.reduce((sum, item) => sum + item.tireCount, 0);
+    const uniqueTypes = [...new Set(collectionItems.map((item) => item.tireType))];
+    const uniqueConditions = [...new Set(collectionItems.map((item) => item.tireCondition))];
+    const tireTypeSummary = uniqueTypes.length === 1 ? uniqueTypes[0] : 'Mixto';
+    const tireConditionSummary = uniqueConditions.length === 1 ? uniqueConditions[0] : 'mixto';
     
     // Calculate points (30 points per tire)
-    const points = collectionData.tireCount * 30;
+    const points = totalTireCount * 30;
     
     const qrCode = generateQrCode(user.id, collectionId);
     const collection = {
       id: collectionId,
       userId: user.id,
       ...collectionData,
+      tireCount: totalTireCount,
+      tireType: tireTypeSummary,
+      tireCondition: tireConditionSummary,
+      collectionItems,
       points,
-      status: 'pending',
+      status: 'available',
       createdAt: new Date().toISOString(),
       traceability: {
         qrCode,
@@ -1684,7 +1714,12 @@ app.post("/server/collections", async (c) => {
             'registrada',
             'generator',
             'Lote registrado en EcolLantApp',
-            { userId: user.id, tireCount: collectionData.tireCount },
+            {
+              userId: user.id,
+              tireCount: totalTireCount,
+              itemCount: collectionItems.length,
+              tireType: tireTypeSummary,
+            },
           ),
         ],
       },
@@ -1697,6 +1732,91 @@ app.post("/server/collections", async (c) => {
   } catch (error) {
     console.log(`Create collection error: ${error}`);
     return c.json({ error: 'Error creating collection' }, 500);
+  }
+});
+
+// Collector takes an available collection (atomic compare-and-set style)
+app.post('/server/collector/collections/:collectionId/take', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user } } = await supabase.auth.getUser(accessToken);
+
+    if (!user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const userProfile = await kv.get(`user:${user.id}`);
+    if (!userProfile || userProfile.type !== 'collector') {
+      return c.json({ error: 'Forbidden: Collector access required' }, 403);
+    }
+
+    const collectionId = c.req.param('collectionId');
+    const found = await findCollectionKeyById(collectionId);
+
+    if (!found?.key || !found?.value) {
+      return c.json({ error: 'Collection not found' }, 404);
+    }
+
+    const current = found.value;
+    const currentStatus = String(current?.status || '').toLowerCase();
+    const hasCollector = Boolean(current?.collectorId);
+    const canTake = !hasCollector && (currentStatus === 'available' || currentStatus === 'pending');
+
+    if (!canTake) {
+      return c.json({ error: 'Collection is no longer available' }, 409);
+    }
+
+    // Parse payment info from request body if provided
+    const body = await c.req.json().catch(() => ({}));
+    const collectorFreight = body.collectorFreight || 0;
+    const collectorBonusPoints = body.collectorBonusPoints || 0;
+
+    const nextCollection = {
+      ...current,
+      status: 'pending',
+      collectorId: user.id,
+      collectorName: userProfile?.name || 'Recolector',
+      collectorPaymentAmount: collectorFreight,
+      collectorBonusPoints: collectorBonusPoints,
+      updatedAt: new Date().toISOString(),
+      traceability: {
+        ...(current.traceability || {}),
+        currentStage: 'en-proceso',
+        events: [
+          ...((current.traceability?.events as any[]) || []),
+          createTraceEvent(
+            'en-proceso',
+            'collector',
+            `Recolector asignado y recoleccion tomada (Pago: ${collectorFreight} HNL + ${collectorBonusPoints} pts)`,
+            { collectorId: user.id, collectorFreight, collectorBonusPoints },
+          ),
+        ],
+      },
+    };
+
+    // ACID-ish safeguard: single SQL update that only succeeds if row remains unclaimed + available/pending.
+    const { data: updatedRows, error: updateError } = await supabase
+      .from('kv_store_b7bf90da')
+      .update({ value: nextCollection })
+      .eq('key', found.key)
+      .in('value->>status', ['available', 'pending'])
+      .is('value->>collectorId', null)
+      .select('value');
+
+    if (updateError) {
+      console.error('Collector take update error:', updateError);
+      return c.json({ error: 'Could not reserve collection' }, 500);
+    }
+
+    if (!updatedRows || updatedRows.length === 0) {
+      return c.json({ error: 'Collection was taken by another collector' }, 409);
+    }
+
+    return c.json(nextCollection);
+  } catch (error) {
+    console.log(`Collector take collection error: ${error}`);
+    return c.json({ error: 'Error taking collection' }, 500);
   }
 });
 
@@ -1732,14 +1852,38 @@ app.put("/server/collections/:collectionId", async (c) => {
     }
 
     if (!isCollector && updates.status && updates.status !== currentCollection.status) {
-      const canCancelPending = updates.status === 'cancelled' && currentCollection.status === 'pending';
-      if (!canCancelPending) {
+      const canCancel = updates.status === 'cancelled' && ['available', 'pending'].includes(currentCollection.status);
+      if (!canCancel) {
         return c.json({ error: 'Generators cannot change collection status' }, 403);
       }
     }
 
-    if (isCollector && updates.status && !['pending', 'in-progress', 'completed', 'cancelled'].includes(updates.status)) {
+    if (isCollector && updates.status && !['available', 'pending', 'in-progress', 'completed', 'cancelled'].includes(updates.status)) {
       return c.json({ error: 'Invalid status for collector update' }, 400);
+    }
+
+    if (isCollector) {
+      const currentCollectorId = currentCollection.collectorId || null;
+      const isAssignedToRequester = currentCollectorId === user.id;
+
+      if (updates.status === 'in-progress' || updates.status === 'completed') {
+        if (!isAssignedToRequester) {
+          return c.json({ error: 'This collection is assigned to another collector' }, 409);
+        }
+      }
+
+      if (updates.status === 'cancelled') {
+        return c.json({ error: 'Use available status to release the collection' }, 400);
+      }
+
+      // Releasing a collection returns it to the shared available board.
+      if (updates.status === 'available') {
+        if (!isAssignedToRequester) {
+          return c.json({ error: 'Cannot release a collection not assigned to you' }, 409);
+        }
+        updates.collectorId = null;
+        updates.collectorName = null;
+      }
     }
     
     const updatedCollection = {
@@ -3965,9 +4109,28 @@ app.get('/server/collector/routes/suggestions', async (c) => {
     const pointsRaw = await kv.getByPrefix('point:');
     const points = pointsRaw.map(withPointStatus);
 
+    const normalizeLabel = (value: string) =>
+      String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+
+    const { data: collectorRatesData } = await supabase
+      .from('collector_tire_rates')
+      .select('tire_type, tire_condition, bonus_points')
+      .eq('is_active', true);
+
+    const collectorBonusMap = new Map<string, number>();
+    for (const rate of collectorRatesData || []) {
+      const key = `${normalizeLabel(rate.tire_type)}|${normalizeLabel(rate.tire_condition)}`;
+      collectorBonusMap.set(key, Number(rate.bonus_points || 0));
+    }
+
     const actionableCollections = collections.filter((item: any) => {
       const status = String(item?.status || '').toLowerCase();
-      return status === 'pending' || status === 'in-progress';
+      const isUnassignedLegacyPending = status === 'pending' && !item?.collectorId;
+      return status === 'available' || isUnassignedLegacyPending;
     });
 
     const suggestions = actionableCollections
@@ -4013,12 +4176,25 @@ app.get('/server/collector/routes/suggestions', async (c) => {
         const tireCondition = normalizeTireCondition(collection?.tireCondition);
         const tariffPerTire = Number(pricing.generatorTariffsByCondition[tireCondition] || pricing.generatorTariffsByCondition.regular || 0);
         const tireCount = Number(collection?.tireCount || 0);
+        const bonusRateKey = `${normalizeLabel(collection?.tireType || 'otro')}|${normalizeLabel(tireCondition)}`;
+        const collectorBonusPoints = Number(collectorBonusMap.get(bonusRateKey) || 0);
         const generatorPayment = Number((tariffPerTire * tireCount).toFixed(2));
         const collectorFreight = estimateCollectorFreight(
           totalRouteKm,
           Number(pricing.collectorFreight.min || 15),
           Number(pricing.collectorFreight.max || 25),
         );
+
+        // Route optimization score: lower is better.
+        // Balances distance against money and reward value to prioritize profitable short routes.
+        const rewardValue = collectorBonusPoints * 0.25;
+        const valueScore = Number((collectorFreight + rewardValue).toFixed(3));
+        const routeScore = Number((totalRouteKm / Math.max(valueScore, 1)).toFixed(4));
+        const recommendation = routeScore <= 0.35
+          ? 'Alta prioridad'
+          : routeScore <= 0.65
+            ? 'Prioridad media'
+            : 'Prioridad baja';
 
         return {
           collectionId: collection.id,
@@ -4042,14 +4218,21 @@ app.get('/server/collector/routes/suggestions', async (c) => {
             generatorPerTire: tariffPerTire,
             generatorTotal: generatorPayment,
             collectorFreight,
+            collectorBonusPoints,
+            generatorRewardValue: rewardValue,
+          },
+          optimization: {
+            routeScore,
+            valueScore,
+            recommendation,
           },
         };
       })
       .filter(Boolean)
       .sort((a: any, b: any) => {
-        if (a.collectionStatus === 'pending' && b.collectionStatus !== 'pending') return -1;
-        if (a.collectionStatus !== 'pending' && b.collectionStatus === 'pending') return 1;
-        return Number(a.distance.totalKm) - Number(b.distance.totalKm);
+        if (a.collectionStatus === 'available' && b.collectionStatus !== 'available') return -1;
+        if (a.collectionStatus !== 'available' && b.collectionStatus === 'available') return 1;
+        return Number(a.optimization.routeScore) - Number(b.optimization.routeScore);
       })
       .slice(0, maxStops);
 

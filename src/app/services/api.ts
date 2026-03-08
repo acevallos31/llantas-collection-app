@@ -3,6 +3,7 @@ import { projectId, publicAnonKey } from '/utils/supabase/info.tsx';
 import type { 
   User, 
   Collection, 
+  CollectionItem,
   CollectionPoint, 
   Reward,
   PaymentSettings,
@@ -335,11 +336,14 @@ export const collectionsAPI = {
   async create(data: {
     tireCount: number;
     tireType: string;
+    tireCondition?: string;
+    collectionItems?: CollectionItem[];
     address: string;
     coordinates: { lat: number; lng: number };
     scheduledDate?: string;
     description?: string;
     photos?: string[];
+    paymentPreference?: 'points' | 'cash';
   }): Promise<Collection> {
     const response = await fetch(`${API_BASE_URL}/collections`, {
       method: 'POST',
@@ -1052,6 +1056,20 @@ export const collectorAPI = {
     const result = await parseResponseBody(response);
     if (!response.ok) {
       throw new Error(resolveErrorMessage(result, 'Error al generar rutas sugeridas'));
+    }
+    return result;
+  },
+
+  async takeCollection(collectionId: string, paymentData?: { collectorFreight?: number; collectorBonusPoints?: number }) {
+    const response = await fetch(`${API_BASE_URL}/collector/collections/${collectionId}/take`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(paymentData || {}),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw buildApiError(response, result, 'No se pudo tomar la recoleccion', 'collector.takeCollection');
     }
     return result;
   },

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { collectionsAPI, uploadAPI } from '../services/api';
+import type { CollectionItem } from '../mockData';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -28,8 +29,9 @@ export default function NewCollectionPage() {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   
-  const [tireCount, setTireCount] = useState(1);
-  const [selectedType, setSelectedType] = useState('Automóvil');
+  const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([
+    { tireType: 'Automóvil', tireCondition: 'regular', tireCount: 1 },
+  ]);
   const [address, setAddress] = useState('');
   const [coordinates, setCoordinates] = useState({ lat: 15.5042, lng: -88.0250 });
   const [scheduledDate, setScheduledDate] = useState('');
@@ -62,6 +64,40 @@ export default function NewCollectionPage() {
     'Autobus',
     'Otro'
   ];
+
+  const tireConditions: Array<CollectionItem['tireCondition']> = [
+    'excelente',
+    'buena',
+    'regular',
+    'desgastada',
+  ];
+
+  const totalTireCount = collectionItems.reduce((sum, item) => sum + item.tireCount, 0);
+
+  const updateItem = (index: number, updates: Partial<CollectionItem>) => {
+    setCollectionItems((prev) => prev.map((item, itemIndex) => {
+      if (itemIndex !== index) return item;
+      return {
+        ...item,
+        ...updates,
+        tireCount: Math.max(1, Number(updates.tireCount ?? item.tireCount) || 1),
+      };
+    }));
+  };
+
+  const addItem = () => {
+    setCollectionItems((prev) => [
+      ...prev,
+      { tireType: 'Automóvil', tireCondition: 'regular', tireCount: 1 },
+    ]);
+  };
+
+  const removeItem = (index: number) => {
+    setCollectionItems((prev) => {
+      if (prev.length === 1) return prev;
+      return prev.filter((_, itemIndex) => itemIndex !== index);
+    });
+  };
 
   const reverseGeocode = async (lat: number, lng: number) => {
     try {
@@ -116,20 +152,35 @@ export default function NewCollectionPage() {
     try {
       setLoading(true);
       
+      if (totalTireCount <= 0) {
+        toast.error('Debes agregar al menos una llanta');
+        return;
+      }
+
+      const payloadItems = collectionItems.map((item) => ({
+        tireType: item.tireType,
+        tireCondition: item.tireCondition,
+        tireCount: item.tireCount,
+      }));
+
+      const summaryType = payloadItems.length === 1
+        ? payloadItems[0].tireType
+        : 'Mixto';
+
       // Create collection
       await collectionsAPI.create({
-        tireCount,
-        tireType: selectedType,
+        tireCount: totalTireCount,
+        tireType: summaryType,
+        collectionItems: payloadItems,
         address,
         coordinates,
         scheduledDate,
         description: description || undefined,
         photos: photos.length > 0 ? photos : undefined,
-        // @ts-ignore - Campo de pago agregado
         paymentPreference,
       });
 
-      const pointsEarned = tireCount * 30;
+      const pointsEarned = totalTireCount * 30;
       
       toast.success('¡Recolección registrada exitosamente!', {
         description: `Se han asignado ${pointsEarned} puntos a tu cuenta`
@@ -165,61 +216,99 @@ export default function NewCollectionPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="p-4 space-y-6">
-        {/* Tire Type */}
+        {/* Tire Items */}
         <Card className="p-6">
-          <Label className="text-base font-semibold mb-3 block">
-            Tipo de Llanta
-          </Label>
-          <div className="grid grid-cols-2 gap-3">
-            {tireTypes.map((type) => (
-              <button
-                key={type}
-                type="button"
-                onClick={() => setSelectedType(type)}
-                className={`p-4 rounded-lg border-2 text-sm font-medium transition-all ${
-                  selectedType === type
-                    ? 'border-green-600 bg-green-50 text-green-700'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                {type}
-              </button>
-            ))}
+          <div className="flex items-center justify-between mb-3">
+            <Label className="text-base font-semibold block">Llantas a Recoger</Label>
+            <Button type="button" variant="outline" size="sm" onClick={addItem}>
+              <Plus className="w-4 h-4 mr-1" /> Agregar item
+            </Button>
           </div>
-        </Card>
 
-        {/* Tire Count */}
-        <Card className="p-6">
-          <Label className="text-base font-semibold mb-3 block">
-            Cantidad de Llantas
-          </Label>
-          <div className="flex items-center justify-between">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => setTireCount(Math.max(1, tireCount - 1))}
-              className="h-12 w-12"
-            >
-              -
-            </Button>
-            <div className="text-center">
-              <div className="text-4xl font-bold text-green-600">{tireCount}</div>
-              <div className="text-sm text-gray-600">llantas</div>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => setTireCount(tireCount + 1)}
-              className="h-12 w-12"
-            >
-              +
-            </Button>
+          <div className="space-y-4">
+            {collectionItems.map((item, index) => (
+              <div key={`item-${index}`} className="border rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-gray-700">Item {index + 1}</p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => removeItem(index)}
+                    disabled={collectionItems.length === 1}
+                    className="h-8 w-8 text-red-500 hover:text-red-700"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  {tireTypes.map((type) => (
+                    <button
+                      key={`${index}-${type}`}
+                      type="button"
+                      onClick={() => updateItem(index, { tireType: type })}
+                      className={`p-3 rounded-lg border-2 text-sm font-medium transition-all ${
+                        item.tireType === type
+                          ? 'border-green-600 bg-green-50 text-green-700'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+
+                <div>
+                  <Label className="text-sm text-gray-600 mb-2 block">Estado</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {tireConditions.map((condition) => (
+                      <button
+                        key={`${index}-${condition}`}
+                        type="button"
+                        onClick={() => updateItem(index, { tireCondition: condition })}
+                        className={`p-2 rounded-lg border text-xs font-medium capitalize transition-all ${
+                          item.tireCondition === condition
+                            ? 'border-green-600 bg-green-50 text-green-700'
+                            : 'border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        {condition}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <Label className="text-sm text-gray-600">Cantidad</Label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={() => updateItem(index, { tireCount: Math.max(1, item.tireCount - 1) })}
+                    >
+                      -
+                    </Button>
+                    <span className="min-w-10 text-center font-bold text-green-700">{item.tireCount}</span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={() => updateItem(index, { tireCount: item.tireCount + 1 })}
+                    >
+                      +
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
           <div className="mt-4 p-3 bg-green-50 rounded-lg text-center">
             <p className="text-sm text-green-800">
-              Puntos a ganar: <span className="font-bold">{tireCount * 30}</span>
+              Total de llantas: <span className="font-bold">{totalTireCount}</span> · Puntos base por recolección: <span className="font-bold">{totalTireCount * 30}</span>
             </p>
           </div>
         </Card>
@@ -372,7 +461,7 @@ export default function NewCollectionPage() {
                   Puntos en la Plataforma
                 </Label>
                 <p className="text-sm text-gray-600 mt-1">
-                  Recibe <span className="font-bold text-green-600">{tireCount * 100} puntos</span> que puedes canjear por recompensas
+                  Recibe <span className="font-bold text-green-600">{totalTireCount * 100} puntos</span> que puedes canjear por recompensas
                 </p>
               </div>
             </div>
@@ -384,7 +473,7 @@ export default function NewCollectionPage() {
                   Pago en Efectivo
                 </Label>
                 <p className="text-sm text-gray-600 mt-1">
-                  Recibe <span className="font-bold text-green-600">L {(tireCount * 5).toFixed(2)}</span> en efectivo + <span className="font-bold">{tireCount * 5} puntos</span> adicionales
+                  Recibe <span className="font-bold text-green-600">L {(totalTireCount * 5).toFixed(2)}</span> en efectivo + <span className="font-bold">{totalTireCount * 5} puntos</span> adicionales
                 </p>
               </div>
             </div>
