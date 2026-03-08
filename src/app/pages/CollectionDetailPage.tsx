@@ -116,35 +116,46 @@ export default function CollectionDetailPage() {
 
       <div className="p-4 space-y-4">
         <Card className="p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-sm text-gray-500">Estado actual</p>
-              <Badge className="mt-1 bg-green-600">{stageLabels[trace?.currentStage || 'registrada'] || trace?.currentStage || 'Registrada'}</Badge>
-            </div>
-            <div className="text-right space-y-2">
-              {collection.generatorPaymentAmount && collection.generatorPaymentAmount > 0 && (
-                <div>
-                  <p className="text-sm text-gray-500">Generador recibe</p>
-                  <p className="font-bold text-blue-600">+{collection.generatorPaymentAmount.toFixed(2)} HNL</p>
-                </div>
-              )}
-              {collection.collectorPaymentAmount && collection.collectorPaymentAmount > 0 && (
-                <div>
-                  <p className="text-sm text-gray-500">Recolector gana</p>
-                  <p className="font-bold text-emerald-600">{collection.collectorPaymentAmount.toFixed(2)} HNL</p>
-                </div>
-              )}
-              {collection.collectorBonusPoints && collection.collectorBonusPoints > 0 && (
-                <div>
-                  <p className="text-sm text-gray-500">Recolector bonus</p>
-                  <p className="font-bold text-emerald-600">+{collection.collectorBonusPoints} pts</p>
-                </div>
-              )}
+          <div className="space-y-3">
+            <div className="flex items-start justify-between">
               <div>
+                <p className="text-sm text-gray-500">Estado actual</p>
+                <Badge className="mt-1 bg-green-600">{stageLabels[trace?.currentStage || 'registrada'] || trace?.currentStage || 'Registrada'}</Badge>
+              </div>
+              <div className="text-right">
                 <p className="text-sm text-gray-500">Puntos generador</p>
                 <p className="font-bold text-green-600">+{collection.points}</p>
               </div>
             </div>
+
+            {/* Compensación del recolector */}
+            {(collection.collectorPaymentAmount || collection.collectorBonusPoints) ? (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                <p className="text-xs font-semibold text-emerald-900 mb-2">💰 Compensación del Recolector</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {collection.collectorPaymentAmount && collection.collectorPaymentAmount > 0 && (
+                    <div>
+                      <p className="text-xs text-gray-600">Efectivo</p>
+                      <p className="font-bold text-emerald-600">{collection.collectorPaymentAmount.toFixed(2)} Lps</p>
+                    </div>
+                  )}
+                  {collection.collectorBonusPoints && collection.collectorBonusPoints > 0 && (
+                    <div>
+                      <p className="text-xs text-gray-600">Puntos Bonus</p>
+                      <p className="font-bold text-blue-600">+{collection.collectorBonusPoints} pts</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
+            {/* Pago del generador */}
+            {collection.generatorPaymentAmount && collection.generatorPaymentAmount > 0 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-xs font-semibold text-blue-900 mb-1">💵 Pago al Generador</p>
+                <p className="font-bold text-blue-600">+{collection.generatorPaymentAmount.toFixed(2)} Lps</p>
+              </div>
+            )}
           </div>
 
           <div className="mt-4 space-y-2 text-sm">

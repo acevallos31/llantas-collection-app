@@ -67,6 +67,7 @@ export default function CollectorDashboardPage() {
   const [routeLoading, setRouteLoading] = useState(false);
   const [routeSuggestions, setRouteSuggestions] = useState<RouteSuggestion[]>([]);
   const [removedCollectionIds, setRemovedCollectionIds] = useState<Set<string>>(new Set());
+  const [addedCollectionIds, setAddedCollectionIds] = useState<Set<string>>(new Set());
   const [showRouteMap, setShowRouteMap] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const requestPollRef = useRef<number | null>(null);
@@ -574,9 +575,26 @@ export default function CollectorDashboardPage() {
                                     →  {item.dropoffPoint.name}
                                   </p>
                                 )}
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-xs font-semibold text-emerald-600">
+                                    {item.estimatedCompensation.collectorFreight.toFixed(2)} Lps
+                                  </span>
+                                  <span className="text-xs text-gray-500">o</span>
+                                  <span className="text-xs font-semibold text-blue-600">
+                                    {item.estimatedCompensation.collectorBonusPoints} pts
+                                  </span>
+                                </div>
                               </div>
                               <div className="flex items-center gap-1">
                                 <p className="text-xs font-semibold text-blue-700">{item.distance.totalKm.toFixed(1)} km</p>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-1 text-xs text-blue-600 hover:text-blue-800"
+                                  onClick={() => navigate(`/history/${item.collectionId}`)}
+                                >
+                                  Ver
+                                </Button>
                                 <Button
                                   size="sm"
                                   variant="ghost"
@@ -606,20 +624,35 @@ export default function CollectorDashboardPage() {
                       </div>
                     ) : (
                       <>
-                        <div className="bg-emerald-50 border border-emerald-200 rounded p-2 mb-3">
-                          <p className="text-xs font-semibold text-emerald-900">Compensación de ruta:</p>
-                          <div className="grid grid-cols-3 gap-2 mt-1">
-                            <div>
-                              <p className="text-xs text-emerald-700">Flete</p>
-                              <p className="font-bold text-emerald-600">{totalFreight.toFixed(2)} HNL</p>
+                        <div className="bg-gradient-to-br from-emerald-50 to-green-50 border-2 border-emerald-300 rounded-lg p-4 mb-3">
+                          <p className="text-sm font-bold text-emerald-900 mb-3">💰 Resumen Financiero de la Ruta</p>
+                          
+                          <div className="grid grid-cols-2 gap-3 mb-3">
+                            <div className="bg-white rounded p-3 border border-emerald-200">
+                              <p className="text-xs text-gray-600 mb-1">Si eliges EFECTIVO + PUNTOS:</p>
+                              <p className="text-xl font-bold text-emerald-600">{totalFreight.toFixed(2)} Lps</p>
+                              <p className="text-xs text-gray-500 mt-1">+ puntos base del sistema</p>
                             </div>
-                            <div>
-                              <p className="text-xs text-emerald-700">Bonus</p>
-                              <p className="font-bold text-emerald-600">+{totalBonus} pts</p>
+                            
+                            <div className="bg-white rounded p-3 border border-blue-200">
+                              <p className="text-xs text-gray-600 mb-1">Si eliges SOLO PUNTOS:</p>
+                              <p className="text-xl font-bold text-blue-600">{totalBonus} pts</p>
+                              <p className="text-xs text-gray-500 mt-1">Multiplicador de puntos</p>
                             </div>
-                            <div>
-                              <p className="text-xs text-emerald-700">Score</p>
-                              <p className="font-bold text-emerald-600">{firstItem.optimization.routeScore.toFixed(3)}</p>
+                          </div>
+
+                          <div className="bg-white/50 rounded p-2 border border-emerald-200">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs text-gray-700">📍 Distancia total:</span>
+                              <span className="font-semibold text-gray-900">{totalDistanceKm.toFixed(1)} km</span>
+                            </div>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-xs text-gray-700">🎯 Score optimización:</span>
+                              <span className="font-semibold text-gray-900">{firstItem.optimization.routeScore.toFixed(3)}</span>
+                            </div>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="text-xs text-gray-700">📦 Total llantas:</span>
+                              <span className="font-semibold text-gray-900">{totalTires}</span>
                             </div>
                           </div>
                         </div>
@@ -761,14 +794,34 @@ export default function CollectorDashboardPage() {
               <div className="mt-3 space-y-2">
                 <div className="flex gap-2">
                   {normalizedStatus === 'available' && (
-                    <Button
-                      className="flex-1 bg-blue-600 hover:bg-blue-700"
-                      onClick={() => void takeCollection(collection.id)}
-                      disabled={updatingId === collection.id}
-                    >
-                      {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 mr-2" />}
-                      Tomar ruta
-                    </Button>
+                    <>
+                      <Button
+                        className="flex-1 bg-blue-600 hover:bg-blue-700"
+                        onClick={() => void takeCollection(collection.id)}
+                        disabled={updatingId === collection.id}
+                      >
+                        {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <PlayCircle className="w-4 h-4 mr-2" />}
+                        Tomar ruta
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="border-green-300 text-green-700 hover:bg-green-50"
+                        onClick={() => {
+                          const newAdded = new Set(addedCollectionIds);
+                          if (newAdded.has(collection.id)) {
+                            newAdded.delete(collection.id);
+                            toast.info('Recolección removida de tu ruta personalizada');
+                          } else {
+                            newAdded.add(collection.id);
+                            toast.success('Recolección agregada a tu ruta personalizada');
+                          }
+                          setAddedCollectionIds(newAdded);
+                        }}
+                        disabled={updatingId === collection.id}
+                      >
+                        {addedCollectionIds.has(collection.id) ? '✓' : '+'}
+                      </Button>
+                    </>
                   )}
 
                   {normalizedStatus === 'pending' && isAssignedToMe && (
