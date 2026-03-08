@@ -1925,6 +1925,53 @@ app.put("/server/collections/:collectionId", async (c) => {
     
     // If collection is being completed, update user points and stats
     if (updates.status === 'completed' && currentCollection.status !== 'completed') {
+      // Calculate collector compensation if not already set
+      if (isCollector && (!updatedCollection.collectorPaymentAmount || !updatedCollection.collectorBonusPoints)) {
+        const pricing = await getPricingSettings();
+        
+        // Get collector bonus points from database
+        const normalizeLabel = (value: string) =>
+          String(value || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase()
+            .trim();
+        
+        const tireCondition = normalizeTireCondition(updatedCollection.tireCondition);
+        const tireType = normalizeLabel(updatedCollection.tireType || 'otro');
+        
+        const { data: collectorRatesData } = await supabase
+          .from('collector_tire_rates')
+          .select('tire_type, tire_condition, bonus_points')
+          .eq('is_active', true);
+        
+        let collectorBonusPoints = 0;
+        for (const rate of collectorRatesData || []) {
+          const key = `${normalizeLabel(rate.tire_type)}|${normalizeLabel(rate.tire_condition)}`;
+          const lookupKey = `${tireType}|${normalizeLabel(tireCondition)}`;
+          if (key === lookupKey) {
+            collectorBonusPoints = Number(rate.bonus_points || 0);
+            break;
+          }
+        }
+        
+        // Estimate distance (if not available, use a default based on location)
+        let estimatedDistanceKm = updatedCollection.distance_km || 10; // Default 10km if no distance
+        
+        // Calculate freight payment
+        const collectorFreight = estimateCollectorFreight(
+          estimatedDistanceKm,
+          Number(pricing.collectorFreight.min || 15),
+          Number(pricing.collectorFreight.max || 25),
+        );
+        
+        // Store calculated values
+        updatedCollection.collectorPaymentAmount = collectorFreight;
+        updatedCollection.collectorBonusPoints = collectorBonusPoints;
+        
+        console.log(`[Collection Complete] Calculated compensation: ${collectorFreight} HNL, ${collectorBonusPoints} pts`);
+      }
+      
       const collectionOwnerProfile = await kv.get(`user:${updatedCollection.userId}`);
       const stats = await kv.get(`stats:${updatedCollection.userId}`);
       
