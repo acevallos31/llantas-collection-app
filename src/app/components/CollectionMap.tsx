@@ -9,6 +9,7 @@ interface CollectionMapProps {
   collections?: Collection[];
   userLocation?: { lat: number; lng: number } | null;
   heightClassName?: string;
+  showRouteTrace?: boolean;
 }
 
 const openDirections = (lat: number, lng: number) => {
@@ -21,6 +22,7 @@ export default function CollectionMap({
   collections = [],
   userLocation = null,
   heightClassName = 'h-[420px]',
+  showRouteTrace = false,
 }: CollectionMapProps) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -141,6 +143,72 @@ export default function CollectionMap({
         .addTo(layerGroup);
     }
 
+    // Draw route trace if enabled
+    if (showRouteTrace && userLocation && collections.length > 0) {
+      const routePoints: LatLngTuple[] = [[userLocation.lat, userLocation.lng]];
+      
+      // Add all collection points in order
+      collections.forEach((collection) => {
+        if (Number.isFinite(collection.coordinates?.lat) && Number.isFinite(collection.coordinates?.lng)) {
+          routePoints.push([collection.coordinates.lat, collection.coordinates.lng]);
+        }
+      });
+
+      // Draw polyline connecting all points
+      if (routePoints.length > 1) {
+        const polyline = L.polyline(routePoints, {
+          color: '#2563eb',
+          weight: 3,
+          opacity: 0.7,
+          dashArray: '10, 5',
+        });
+
+        polyline.bindPopup(
+          `<div style="font-size:12px;line-height:1.4">
+            <strong>Ruta sugerida</strong><br/>
+            ${collections.length} parada${collections.length > 1 ? 's' : ''}
+          </div>`,
+        );
+
+        polyline.addTo(layerGroup);
+
+        // Add numbered markers for each stop
+        collections.forEach((collection, index) => {
+          const numberMarker = L.marker([collection.coordinates.lat, collection.coordinates.lng], {
+            icon: L.divIcon({
+              className: 'custom-number-marker',
+              html: `<div style="
+                background-color: #2563eb;
+                color: white;
+                border-radius: 50%;
+                width: 24px;
+                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: bold;
+                font-size: 12px;
+                border: 2px solid white;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+              ">${index + 1}</div>`,
+              iconSize: [24, 24],
+              iconAnchor: [12, 12],
+            }),
+          });
+
+          numberMarker.bindPopup(
+            `<div style="font-size:12px;line-height:1.4">
+              <strong>Parada ${index + 1}</strong><br/>
+              ${collection.tireType} - ${collection.tireCount} llantas<br/>
+              ${collection.address}
+            </div>`,
+          );
+
+          numberMarker.addTo(layerGroup);
+        });
+      }
+    }
+
     try {
       if (coordinates.length > 1) {
         map.fitBounds(coordinates, { padding: [48, 48], maxZoom: 12 });
@@ -150,7 +218,7 @@ export default function CollectionMap({
     } catch {
       // Ignore transient map lifecycle errors during route changes.
     }
-  }, [points, collections, userLocation, coordinates]);
+  }, [points, collections, userLocation, coordinates, showRouteTrace]);
 
   return (
     <div className={`relative overflow-hidden rounded-2xl border bg-white ${heightClassName}`}>

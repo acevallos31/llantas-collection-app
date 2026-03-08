@@ -4186,10 +4186,45 @@ app.get('/server/collector/routes/suggestions', async (c) => {
       collectorBonusMap.set(key, Number(rate.bonus_points || 0));
     }
 
+    // Get today's date at start of day for comparison
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayTime = today.getTime();
+
     const actionableCollections = collections.filter((item: any) => {
       const status = String(item?.status || '').toLowerCase();
       const isUnassignedLegacyPending = status === 'pending' && !item?.collectorId;
-      return status === 'available' || isUnassignedLegacyPending;
+      const isAvailable = status === 'available' || isUnassignedLegacyPending;
+      
+      // Must not be assigned to any collector
+      if (item?.collectorId) {
+        return false;
+      }
+      
+      // Must be in available/unassigned status
+      if (!isAvailable) {
+        return false;
+      }
+      
+      // Validate scheduled date - must be today or before
+      if (item?.scheduledDate) {
+        try {
+          const scheduledDate = new Date(item.scheduledDate);
+          scheduledDate.setHours(0, 0, 0, 0);
+          const scheduledTime = scheduledDate.getTime();
+          
+          // Skip if scheduled for future
+          if (scheduledTime > todayTime) {
+            console.log(`[Route Suggestions] Skipping collection ${item?.id} - scheduled for future: ${item.scheduledDate}`);
+            return false;
+          }
+        } catch (err) {
+          console.warn(`[Route Suggestions] Invalid scheduledDate for collection ${item?.id}: ${item.scheduledDate}`);
+          // If date is invalid, include it anyway (backward compatibility)
+        }
+      }
+      
+      return true;
     });
 
     console.log(`[Route Suggestions] Actionable collections: ${actionableCollections.length}`);

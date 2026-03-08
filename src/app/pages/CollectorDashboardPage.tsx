@@ -68,6 +68,7 @@ export default function CollectorDashboardPage() {
   const [routeSuggestions, setRouteSuggestions] = useState<RouteSuggestion[]>([]);
   const [removedCollectionIds, setRemovedCollectionIds] = useState<Set<string>>(new Set());
   const [addedCollectionIds, setAddedCollectionIds] = useState<Set<string>>(new Set());
+  const [collectorLocation, setCollectorLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [showRouteMap, setShowRouteMap] = useState(false);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const requestPollRef = useRef<number | null>(null);
@@ -132,6 +133,11 @@ export default function CollectorDashboardPage() {
 
       const currentPosition = await getLocation();
       console.log('🗺️ Requesting routes with location:', currentPosition);
+      
+      // Save collector location for map display
+      if (currentPosition) {
+        setCollectorLocation(currentPosition);
+      }
       
       const data = await collectorAPI.getRouteSuggestions({
         lat: currentPosition?.lat,
@@ -675,8 +681,9 @@ export default function CollectorDashboardPage() {
                                 id: item.collectionId,
                                 address: item.pickupAddress,
                               } as any))}
-                              userLocation={null}
+                              userLocation={collectorLocation}
                               heightClassName="h-[300px]"
+                              showRouteTrace={true}
                             />
                           </div>
                         )}
