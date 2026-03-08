@@ -109,30 +109,41 @@ export default function CollectorDashboardPage() {
 
       const getLocation = () => new Promise<{ lat: number; lng: number } | null>((resolve) => {
         if (!navigator.geolocation) {
+          console.warn('Geolocation not available');
           resolve(null);
           return;
         }
         navigator.geolocation.getCurrentPosition(
           (position) => {
+            console.log('📍 User location:', position.coords);
             resolve({
               lat: position.coords.latitude,
               lng: position.coords.longitude,
             });
           },
-          () => resolve(null),
+          (error) => {
+            console.warn('Geolocation error:', error);
+            resolve(null);
+          },
           { enableHighAccuracy: true, timeout: 4500, maximumAge: 1000 * 60 * 3 },
         );
       });
 
       const currentPosition = await getLocation();
+      console.log('🗺️ Requesting routes with location:', currentPosition);
+      
       const data = await collectorAPI.getRouteSuggestions({
         lat: currentPosition?.lat,
         lng: currentPosition?.lng,
         maxStops: 5,
       });
 
-      setRouteSuggestions(Array.isArray(data?.suggestions) ? data.suggestions : []);
+      console.log('🛣️ Route suggestions response:', data);
+      const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : [];
+      console.log(`📊 Found ${suggestions.length} route suggestions`);
+      setRouteSuggestions(suggestions);
     } catch (error: any) {
+      console.error('❌ Route suggestions error:', error);
       toast.error(error.message || 'No se pudieron generar rutas sugeridas');
       setRouteSuggestions([]);
     } finally {

@@ -55,13 +55,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (sessionData?.user) {
           setUser(sessionData.user);
         } else {
+          // Token exists but session is invalid - clear it
+          authAPI.logout();
           setUser(null);
         }
       } else {
         setUser(null);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Session check error:', err);
+      // If error is 401 (Unauthorized), clear invalid token
+      if (err?.message?.includes('401') || err?.message?.toLowerCase().includes('unauthorized') || err?.message?.toLowerCase().includes('invalid token')) {
+        console.log('Invalid token detected - clearing session');
+        authAPI.logout();
+      }
       setUser(null);
     } finally {
       setLoading(false);

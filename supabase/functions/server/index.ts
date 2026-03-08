@@ -4081,9 +4081,12 @@ app.get("/server/points/:pointId/inventory", async (c) => {
 // Suggested routes for collectors based on current location + pending collections + nearest points
 app.get('/server/collector/routes/suggestions', async (c) => {
   try {
+    console.log('[Route Suggestions API] Request received');
     const accessToken = c.req.header('Authorization')?.split(' ')[1];
     const supabase = getSupabaseClient(true);
     const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+
+    console.log('[Route Suggestions API] User authenticated:', user?.id);
 
     if (!user?.id) {
       return c.json({ error: 'Unauthorized' }, 401);
@@ -4094,20 +4097,29 @@ app.get('/server/collector/routes/suggestions', async (c) => {
       return c.json({ error: 'Forbidden: Only collectors/admin can request route suggestions' }, 403);
     }
 
+    console.log('[Route Suggestions API] User is valid collector/admin');
+
     const lat = Number(c.req.query('lat'));
     const lng = Number(c.req.query('lng'));
     const maxStopsRaw = Number(c.req.query('maxStops') || 5);
     const maxStops = Math.min(15, Math.max(1, Number.isFinite(maxStopsRaw) ? maxStopsRaw : 5));
+
+    console.log(`[Route Suggestions API] Query parameters: lat=${lat}, lng=${lng}, maxStops=${maxStops}`);
 
     const collectorOrigin = {
       lat: Number.isFinite(lat) ? lat : 15.5042,
       lng: Number.isFinite(lng) ? lng : -88.025,
     };
 
+    console.log(`[Route Suggestions API] Using origin: lat=${collectorOrigin.lat}, lng=${collectorOrigin.lng}`);
+
     const pricing = await getPricingSettings();
     const collections = await kv.getByPrefix('collection:');
     const pointsRaw = await kv.getByPrefix('point:');
     const points = pointsRaw.map(withPointStatus);
+
+    console.log(`[Route Suggestions] Collections in KV: ${collections.length}`);
+    console.log(`[Route Suggestions] Collection points: ${points.length}`);
 
     const normalizeLabel = (value: string) =>
       String(value || '')
@@ -4133,10 +4145,14 @@ app.get('/server/collector/routes/suggestions', async (c) => {
       return status === 'available' || isUnassignedLegacyPending;
     });
 
+    console.log(`[Route Suggestions] Actionable collections: ${actionableCollections.length}`);
+
     const suggestions = actionableCollections
       .map((collection: any) => {
         const collectionCoords = collection?.coordinates;
-        if (!collectionCoords || !Number.isFinite(Number(collectionCoords.lat)) || !Number.isFinite(Number(collectionCoords.lng))) {
+        const hasValidCoords = collectionCoords && Number.isFinite(Number(collectionCoords.lat)) && Number.isFinite(Number(collectionCoords.lng));
+        if (!hasValidCoords) {
+          console.warn(`[Route Suggestions] Skipping collection ${collection?.id} - invalid coords:`, collectionCoords);
           return null;
         }
 
@@ -4235,6 +4251,8 @@ app.get('/server/collector/routes/suggestions', async (c) => {
         return Number(a.optimization.routeScore) - Number(b.optimization.routeScore);
       })
       .slice(0, maxStops);
+
+    console.log(`[Route Suggestions API] Generated ${suggestions.length} suggestions from ${actionableCollections.length} candidates`);
 
     return c.json({
       origin: collectorOrigin,
