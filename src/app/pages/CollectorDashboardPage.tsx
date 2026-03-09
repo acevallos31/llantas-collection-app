@@ -142,7 +142,7 @@ export default function CollectorDashboardPage() {
       const data = await collectorAPI.getRouteSuggestions({
         lat: currentPosition?.lat,
         lng: currentPosition?.lng,
-        maxStops: 5,
+        maxStops: 50,
       });
 
       console.log('🛣️ Route suggestions response:', data);
@@ -489,6 +489,52 @@ export default function CollectorDashboardPage() {
     }
   };
 
+  const takeRoute = async (items: RouteSuggestion[]) => {
+    if (items.length === 0) return;
+
+    try {
+      setUpdatingId('route-batch');
+
+      let taken = 0;
+      let conflicts = 0;
+      let failed = 0;
+
+      for (const item of items) {
+        try {
+          await collectorAPI.takeCollection(item.collectionId, {
+            collectorFreight: item.estimatedCompensation.collectorFreight,
+            collectorBonusPoints: item.estimatedCompensation.collectorBonusPoints,
+          });
+          taken += 1;
+        } catch (error: any) {
+          const message = String(error?.message || 'No se pudo tomar la recoleccion');
+          if (message.toLowerCase().includes('no longer available') || message.toLowerCase().includes('taken by another')) {
+            conflicts += 1;
+          } else {
+            failed += 1;
+          }
+        }
+      }
+
+      if (taken > 0) {
+        toast.success(`Ruta tomada parcialmente/completa: ${taken} parada${taken > 1 ? 's' : ''} asignada${taken > 1 ? 's' : ''}.`);
+      }
+      if (conflicts > 0) {
+        toast.info(`${conflicts} parada${conflicts > 1 ? 's' : ''} ya no estaba${conflicts > 1 ? 'n' : ''} disponible${conflicts > 1 ? 's' : ''}.`);
+      }
+      if (failed > 0) {
+        toast.error(`${failed} parada${failed > 1 ? 's' : ''} no pudo${failed > 1 ? 'ieron' : ''} procesarse.`);
+      }
+
+      setRemovedCollectionIds(new Set());
+      setAddedCollectionIds(new Set());
+      await loadCollections();
+      await loadRouteSuggestions();
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   // Renderizado condicional sin early returns
 
   if (!isCollector) {
@@ -548,7 +594,12 @@ export default function CollectorDashboardPage() {
           ) : (
             <div className="space-y-3">
               {routeSuggestions.slice(0, 1).map((firstItem, routeIdx) => {
-                const allRouteItems = routeSuggestions.slice(0, Math.min(5, routeSuggestions.length));
+                const baseRouteItems = routeSuggestions.slice(0, Math.min(5, routeSuggestions.length));
+                const manuallyAddedRouteItems = routeSuggestions.filter(
+                  (item) => addedCollectionIds.has(item.collectionId)
+                    && !baseRouteItems.some((base) => base.collectionId === item.collectionId),
+                );
+                const allRouteItems = [...baseRouteItems, ...manuallyAddedRouteItems];
                 const routeItems = allRouteItems.filter(item => !removedCollectionIds.has(item.collectionId));
                 const totalTires = routeItems.reduce((sum, item) => sum + item.tireCount, 0);
                 const totalFreight = routeItems.reduce((sum, item) => sum + item.estimatedCompensation.collectorFreight, 0);
@@ -695,13 +746,10 @@ export default function CollectorDashboardPage() {
                         <p className="text-xs text-blue-800 mb-3">{firstItem.optimization.recommendation}</p>
                         <Button
                           className="w-full bg-blue-600 hover:bg-blue-700"
-                          onClick={() => void takeCollection(firstItem.collectionId, {
-                            collectorFreight: firstItem.estimatedCompensation.collectorFreight,
-                            collectorBonusPoints: firstItem.estimatedCompensation.collectorBonusPoints,
-                          })}
-                          disabled={updatingId === firstItem.collectionId || routeItems.length === 0}
+                          onClick={() => void takeRoute(routeItems)}
+                          disabled={updatingId === 'route-batch' || routeItems.length === 0}
                         >
-                          {updatingId === firstItem.collectionId ? (
+                          {updatingId === 'route-batch' ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
                             <>
@@ -815,14 +863,18 @@ export default function CollectorDashboardPage() {
                         className="border-green-300 text-green-700 hover:bg-green-50"
                         onClick={() => {
                           const newAdded = new Set(addedCollectionIds);
+                          const newRemoved = new Set(removedCollectionIds);
                           if (newAdded.has(collection.id)) {
                             newAdded.delete(collection.id);
                             toast.info('Recolección removida de tu ruta personalizada');
                           } else {
                             newAdded.add(collection.id);
+                            // If user re-adds from cards, ensure it is active in route.
+                            newRemoved.delete(collection.id);
                             toast.success('Recolección agregada a tu ruta personalizada');
                           }
                           setAddedCollectionIds(newAdded);
+                          setRemovedCollectionIds(newRemoved);
                         }}
                         disabled={updatingId === collection.id}
                       >
