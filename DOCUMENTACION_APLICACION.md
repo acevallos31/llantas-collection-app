@@ -105,11 +105,28 @@ Beneficios directos:
 **Fase 2 completada:** Se agregó un marketplace digital completo de compra/venta de llantas usadas con:
 
 ### 7.1 Cliente (comprador)
-- Catálogo visual con fotos, especificaciones técnicas y lotes
-- Carrito de compra multi-item
-- Elección de método de entrega: recolector a domicilio o recogida en centro
-- Historial de compras y seguimiento de estado
-- Acumulación de puntos por transacciones
+- **Interfaz tipo Amazon/eBay**
+  - Grid de productos con imagen, nombre, precio y stock a simple vista
+  - Búsqueda en tiempo real por nombre o numeración (ej: "205/55R16")
+  - Filtros por tipo de llanta: Automóvil, Camión, Autobús, Motocicleta, Bicicleta
+- **Modal/Vista detallada al hacer clic en producto**
+  - Galería de imágenes
+  - Especificaciones completas: marca, modelo, numeración, condición
+  - Lote y stock disponible
+  - Selector de cantidad (incrementar/decrementar)
+  - Botón "Agregar al carrito" desde detalles
+- **Carrito lateral deslizable** (estilo Amazon)
+  - Thumbnails de productos con nombre y numeración
+  - Controles de cantidad por item
+  - Botón eliminar
+  - Total dinámico
+  - Panel de checkout integrado:
+    - Selector método de entrega (recolector/centro acopio)
+    - Selección de recolector o centro específico
+    - Notas opcionales
+    - Botón confirmar compra
+- **Historial de compras** con estados y comprobantes
+- **Acumulación de puntos** por transacciones
 
 ### 7.2 Recolector (distribuidor)
 - Panel exclusivo de entregas marketplace disponibles
@@ -124,11 +141,36 @@ Beneficios directos:
 - Métricas de ventas por producto y por centro de acopio
 
 ### 7.4 Características técnicas
-- **Catálogo realista:** llantas automovilísticas, camión, autobús, motocicleta, bicicleta
+- **Catálogo masivo:** 58 productos iniciales con:
+  - **Automóviles (20):** Rin 13-14 (155/70R13, 175/65R14, 185/60R14), Rin 15 (185/65R15, 195/55R15, 195/65R15, 205/65R15), Rin 16 (205/55R16, 215/60R16, 225/50R16, 195/55R16, 215/55R16), Rin 17-18 (225/45R17, 225/40R18, 235/55R17, 245/45R18, 225/45R18)
+  - **Camiones (10):** 275/80R22.5, 295/80R22.5, 315/80R22.5, 385/65R22.5, 11R22.5, 12R22.5
+  - **Autobuses (8):** 275/70R22.5, 295/75R22.5, 315/70R22.5, 385/65R22.5, 10.00R20, 11.00R20
+  - **Motocicletas (12):** 90/90-17, 100/90-17, 110/90-17, 120/90-17, 130/90-15, 140/70-17, 150/70-18, 160/60-17, 170/60-18, 180/55-17
+  - **Bicicletas (8):** 26x1.95, 26x2.1, 27.5x2.2, 27.5x2.4, 29x2.0, 29x2.1, 29x2.4, 20x1.75, 20x2.0, 24x1.95
+  - **Reciclaje (1):** Caucho triturado para transformación
+
+- **Imágenes realistas:** Cada tipo de llanta tiene fotos específicas desde Unsplash
+  - Automóvil: Fotos de llantas para compactos y sedanes
+  - Camión: Fotos de llantas industriales pesadas
+  - Autobús: Fotos de llantas para transporte público
+  - Motocicleta: Fotos de llantas deportivas/street
+  - Bicicleta: Fotos de llantas mountain/road
+  - Reciclaje: Fotos de material procesado
+
+- **Variación realista:**
+  - Condiciones: Excelente (30% precio base), Buena (precio base)
+  - Marcas por tipo: Michelin, Continental, Bridgestone, Goodyear, Pirelli, Dunlop, Yokohama, Firestone
+  - Modelos específicos: Primacy, Eco Contact, Turanza, Assurance, Dragon Sport, M840, UrbanMax, etc.
+  - Precios dinámicos según condición y lote
+  - Stock variado (1-20 unidades por producto)
+
+- **Lotes inteligentes:**
+  - Automóviles: Algunos lotes de 4 unidades
+  - Camiones: Algunos lotes de 2 unidades
+  - Resto: Venta unitaria o según marca
+
 - **Separación de flujos:** reventa (buena/excelente) vs reciclaje (regular/desgastada)
 - **Integración con inventario existente:** productos generados automáticamente desde centros de acopio
-- **Lotes:** empaque de múltiples llantas (ej. 4 automóvil, 2 camión, 8 motocicleta)
-- **Fotos y especificaciones:** numeraciones técnicas y URLs de imágenes para cada producto
 - **Estados avanzados:** available, pending, in-progress, picked-up, confirmed, delivered
 
 ## 8. Alcance actual del prototipo
