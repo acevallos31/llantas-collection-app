@@ -103,6 +103,7 @@ export default function CollectorDashboardPage() {
   const answerPollRef = useRef<number | null>(null);
   const lastAutoRefreshRef = useRef(0);
   const routeSyncIntervalRef = useRef<number | null>(null);
+  const latestCollectorLocationRef = useRef<{ lat: number; lng: number } | null>(null);
 
   const isCollector = user?.type === 'collector';
 
@@ -138,7 +139,9 @@ export default function CollectorDashboardPage() {
 
   const loadRouteSuggestions = async (silent = false) => {
     try {
-      setRouteLoading(true);
+      if (!silent) {
+        setRouteLoading(true);
+      }
 
       const getLocation = () => new Promise<{ lat: number; lng: number } | null>((resolve) => {
         if (!navigator.geolocation) {
@@ -162,12 +165,15 @@ export default function CollectorDashboardPage() {
         );
       });
 
-      const currentPosition = await getLocation();
+      const currentPosition = silent && latestCollectorLocationRef.current
+        ? latestCollectorLocationRef.current
+        : await getLocation();
       console.log('🗺️ Requesting routes with location:', currentPosition);
       
       // Save collector location for map display
       if (currentPosition) {
         setCollectorLocation(currentPosition);
+        latestCollectorLocationRef.current = currentPosition;
       }
       
       const data = await collectorAPI.getRouteSuggestions({
@@ -185,16 +191,20 @@ export default function CollectorDashboardPage() {
       if (!silent) {
         toast.error(error.message || 'No se pudieron generar rutas sugeridas');
       }
-      setRouteSuggestions([]);
+      if (!silent) {
+        setRouteSuggestions([]);
+      }
     } finally {
-      setRouteLoading(false);
+      if (!silent) {
+        setRouteLoading(false);
+      }
     }
   };
   useEffect(() => {
     if (!isCollector) return;
 
     // Soft auto-sync to bring in newly created generator requests without aggressive polling.
-    const syncIntervalMs = 45000;
+    const syncIntervalMs = 12000;
 
     const syncBoard = () => {
       if (document.visibilityState !== 'visible') return;
@@ -457,7 +467,9 @@ export default function CollectorDashboardPage() {
 
   const loadCollections = async (silent = false) => {
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
       const all = await collectionsAPI.getAll();
       const actionable = all.filter(
         (item: Collection) => {
@@ -472,10 +484,12 @@ export default function CollectorDashboardPage() {
     } catch (error: any) {
       if (!silent) {
         toast.error(error.message || 'No se pudo cargar la bandeja de recolecciones');
+        setCollections([]);
       }
-      setCollections([]);
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
