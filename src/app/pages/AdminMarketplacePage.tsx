@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext.js';
 import { marketplaceAPI } from '../services/api.js';
@@ -51,6 +51,7 @@ export default function AdminMarketplacePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(defaultForm);
   const [imagePreview, setImagePreview] = useState<string>('');
+  const formRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = user?.type === 'admin';
 
@@ -97,6 +98,11 @@ export default function AdminMarketplacePage() {
       active: editingProduct.active !== false,
       photoUrl: editingProduct.photoUrl || '',
     });
+    
+    // Scroll al formulario
+    setTimeout(() => {
+      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 100);
     setImagePreview(editingProduct.photoUrl || '');
   }, [editingProduct]);
 
@@ -248,8 +254,11 @@ export default function AdminMarketplacePage() {
             </TabsList>
 
             <TabsContent value="products" className="space-y-4">
-              <Card className="p-4 space-y-3">
-                <h3 className="font-semibold flex items-center gap-2"><Plus className="w-4 h-4" /> {editingId ? 'Editar producto' : 'Nuevo producto'}</h3>
+              <Card ref={formRef} className="p-4 space-y-3 border-2 border-blue-300 shadow-md">
+                <h3 className="font-semibold flex items-center gap-2">
+                  {editingId ? <Pencil className="w-4 h-4 text-blue-600" /> : <Plus className="w-4 h-4" />}
+                  {editingId ? <span className="text-blue-600">Editando: {form.name || 'Sin nombre'}</span> : 'Nuevo producto'}
+                </h3>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   <div className="space-y-1">
