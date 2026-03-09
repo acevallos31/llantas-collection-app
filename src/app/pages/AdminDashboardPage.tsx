@@ -25,6 +25,7 @@ import {
   Users,
   Gift,
   Store,
+  RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL, getAuthHeaders, authAPI } from '../services/api.js';
@@ -168,6 +169,7 @@ export default function AdminDashboardPage() {
     serverTimezone: 'America/Tegucigalpa',
   });
   const [savingSettings, setSavingSettings] = useState(false);
+  const [refreshingPanelData, setRefreshingPanelData] = useState(false);
   const [analytics, setAnalytics] = useState<AdminAnalytics>({
     totalVisits: 0,
     totalSessionDurationMs: 0,
@@ -980,6 +982,18 @@ export default function AdminDashboardPage() {
       toast.error(error.message || 'No se pudo guardar la configuración');
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const handleRefreshPanelData = async () => {
+    try {
+      setRefreshingPanelData(true);
+      await loadAdminData();
+      toast.success('Datos del panel actualizados');
+    } catch (error: any) {
+      toast.error(error?.message || 'No se pudo actualizar el panel');
+    } finally {
+      setRefreshingPanelData(false);
     }
   };
 
@@ -1876,6 +1890,25 @@ export default function AdminDashboardPage() {
 
                       <Button className="w-full" onClick={handleSaveSettings} disabled={savingSettings}>
                         {savingSettings ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Guardar configuración'}
+                      </Button>
+
+                      <Button
+                        className="w-full"
+                        variant="outline"
+                        onClick={() => void handleRefreshPanelData()}
+                        disabled={refreshingPanelData}
+                      >
+                        {refreshingPanelData ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Actualizando panel...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-4 h-4 mr-2" />
+                            Actualizar datos del panel
+                          </>
+                        )}
                       </Button>
                     </div>
                   </Card>
