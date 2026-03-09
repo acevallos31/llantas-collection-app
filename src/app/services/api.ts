@@ -76,13 +76,31 @@ const resolveErrorMessage = (payload: any, fallbackMessage: string) => {
   return fallbackMessage;
 };
 
+let refreshInFlight: Promise<boolean> | null = null;
+
+const shouldAutoRecoverUnauthorized = (context: string) => {
+  // Do not auto-refresh on auth endpoints where a 401 is expected on bad credentials.
+  return !(
+    context === 'auth.signin' ||
+    context === 'auth.signup' ||
+    context === 'auth.refresh' ||
+    context === 'auth.session'
+  );
+};
+
 // Auto-logout on 401 Unauthorized
 const handleUnauthorizedResponse = async (response: Response): Promise<boolean> => {
   if (response.status === 401) {
     console.warn('[API] 401 Unauthorized detected - attempting token refresh');
-    
-    // Try to refresh the token first
-    const refreshed = await authAPI.refreshToken();
+
+    // Coalesce concurrent refresh attempts to avoid request storms.
+    if (!refreshInFlight) {
+      refreshInFlight = authAPI.refreshToken().finally(() => {
+        refreshInFlight = null;
+      });
+    }
+
+    const refreshed = await refreshInFlight;
     
     if (refreshed) {
       console.log('[API] Token refreshed successfully');
@@ -111,8 +129,10 @@ const buildApiError = (
   fallbackMessage: string,
   context: string,
 ) => {
-  // Handle unauthorized automatically
-  handleUnauthorizedResponse(response);
+  // Handle unauthorized automatically only for non-auth flows.
+  if (response.status === 401 && shouldAutoRecoverUnauthorized(context)) {
+    void handleUnauthorizedResponse(response);
+  }
   
   const backendMessage = resolveErrorMessage(payload, fallbackMessage);
   const detailedMessage = `${backendMessage} (HTTP ${response.status} ${response.statusText})`;
@@ -137,11 +157,11 @@ export const getAuthHeaders = (includeAuth = true) => {
   
   if (includeAuth) {
     const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-    if (token) {
+    if (token && token.split('.').length === 3) {
       // User is authenticated - send user token
       headers['Authorization'] = `Bearer ${token}`;
     } else {
-      // No user token - send anon key for public endpoints and analytics
+      // Missing/invalid token: use anon key for endpoints that still require Authorization header.
       headers['Authorization'] = `Bearer ${publicAnonKey}`;
     }
   } else {

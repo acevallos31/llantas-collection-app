@@ -13,9 +13,12 @@ export function ErrorBoundary() {
   }, [error]);
 
   const handleGoHome = () => {
-    // Clear any stale session data
-    localStorage.clear();
-    sessionStorage.clear();
+    // Clear only auth/session keys to avoid wiping app-level cached state.
+    localStorage.removeItem('ecolant_access_token');
+    localStorage.removeItem('ecolant_refresh_token');
+    localStorage.removeItem('ecolant_user');
+    sessionStorage.removeItem('ecolant_session_id');
+    sessionStorage.removeItem('ecolant_session_started');
     window.location.href = '/';
   };
 

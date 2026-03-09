@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext.tsx';
 import { Loader2 } from 'lucide-react';
 import type { ErrorInfo, ReactNode } from 'react';
 
