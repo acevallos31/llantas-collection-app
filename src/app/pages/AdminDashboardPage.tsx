@@ -308,6 +308,35 @@ export default function AdminDashboardPage() {
     }
   };
 
+  useEffect(() => {
+    if (!user || user.type !== 'admin') return;
+
+    const intervalId = window.setInterval(async () => {
+      try {
+        const analyticsData = await adminAPI.getAnalytics();
+        setAnalytics({
+          totalVisits: Number(analyticsData?.totalVisits || 0),
+          totalSessionDurationMs: Number(analyticsData?.totalSessionDurationMs || 0),
+          sessionCount: Number(analyticsData?.sessionCount || 0),
+          averageSessionDurationMs: Number(analyticsData?.averageSessionDurationMs || 0),
+          totalAppLoadTimeMs: Number(analyticsData?.totalAppLoadTimeMs || 0),
+          appLoadSampleCount: Number(analyticsData?.appLoadSampleCount || 0),
+          averageAppLoadTimeMs: Number(analyticsData?.averageAppLoadTimeMs || 0),
+          activeSessions: Number(analyticsData?.activeSessions || 0),
+          concurrentSessions: Number(analyticsData?.concurrentSessions || 0),
+          peakConcurrentSessions: Number(analyticsData?.peakConcurrentSessions || 0),
+          updatedAt: analyticsData?.updatedAt || null,
+        });
+      } catch {
+        // Keep the latest snapshot if periodic refresh fails temporarily.
+      }
+    }, 15000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [user]);
+
   const handleApplyAnalyticsFilters = async () => {
     try {
       setAnalyticsBusy(true);

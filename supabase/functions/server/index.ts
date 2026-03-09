@@ -683,6 +683,73 @@ app.get("/server/health", (c) => {
 
 // ==================== ANALYTICS ROUTES ====================
 
+const FALLBACK_ANALYTICS_KEY = 'analytics:fallback-overview';
+const ACTIVE_SESSION_TTL_MS = 5 * 60 * 1000;
+
+const getActiveSessionsFromKv = async () => {
+  const metas = await kv.getByPrefix('analytics:session-meta:');
+  const nowMs = Date.now();
+
+  return metas.filter((meta: any) => {
+    const lastActivity = new Date(meta?.lastActivityAt || meta?.updatedAt || meta?.startedAt || 0).getTime();
+    return Number.isFinite(lastActivity) && (nowMs - lastActivity) <= ACTIVE_SESSION_TTL_MS;
+  }).length;
+};
+
+const getFallbackAnalyticsOverview = async () => {
+  const current = await kv.get(FALLBACK_ANALYTICS_KEY);
+  const safe = current && typeof current === 'object' ? current : {};
+  const totalVisits = Number(safe.totalVisits || 0);
+  const totalSessionDurationMs = Number(safe.totalSessionDurationMs || 0);
+  const sessionCount = Number(safe.sessionCount || 0);
+  const totalAppLoadTimeMs = Number(safe.totalAppLoadTimeMs || 0);
+  const appLoadSampleCount = Number(safe.appLoadSampleCount || 0);
+  const peakConcurrentSessions = Number(safe.peakConcurrentSessions || 0);
+  const activeSessions = await getActiveSessionsFromKv();
+  const concurrentSessions = activeSessions;
+
+  return {
+    totalVisits,
+    totalSessionDurationMs,
+    sessionCount,
+    totalAppLoadTimeMs,
+    appLoadSampleCount,
+    activeSessions,
+    concurrentSessions,
+    peakConcurrentSessions: Math.max(peakConcurrentSessions, concurrentSessions),
+    averageSessionDurationMs: sessionCount > 0 ? totalSessionDurationMs / sessionCount : 0,
+    averageAppLoadTimeMs: appLoadSampleCount > 0 ? totalAppLoadTimeMs / appLoadSampleCount : 0,
+    updatedAt: safe.updatedAt || null,
+  };
+};
+
+const updateFallbackAnalytics = async (updates: {
+  totalVisits?: number;
+  totalSessionDurationMs?: number;
+  sessionCount?: number;
+  totalAppLoadTimeMs?: number;
+  appLoadSampleCount?: number;
+  peakConcurrentSessions?: number;
+}) => {
+  const current = await getFallbackAnalyticsOverview();
+  const next = {
+    totalVisits: current.totalVisits + Number(updates.totalVisits || 0),
+    totalSessionDurationMs: current.totalSessionDurationMs + Number(updates.totalSessionDurationMs || 0),
+    sessionCount: current.sessionCount + Number(updates.sessionCount || 0),
+    totalAppLoadTimeMs: current.totalAppLoadTimeMs + Number(updates.totalAppLoadTimeMs || 0),
+    appLoadSampleCount: current.appLoadSampleCount + Number(updates.appLoadSampleCount || 0),
+    peakConcurrentSessions: Math.max(
+      Number(current.peakConcurrentSessions || 0),
+      Number(updates.peakConcurrentSessions || 0),
+      Number(current.concurrentSessions || 0),
+    ),
+    updatedAt: new Date().toISOString(),
+  };
+
+  await kv.set(FALLBACK_ANALYTICS_KEY, next);
+  return next;
+};
+
 const getAnalyticsOverview = async () => {
   const supabase = getSupabaseClient(true);
   const { data, error } = await supabase
@@ -693,19 +760,7 @@ const getAnalyticsOverview = async () => {
 
   if (error || !data) {
     console.log(`Analytics overview fallback: ${error?.message || 'missing row'}`);
-    return {
-      totalVisits: 0,
-      totalSessionDurationMs: 0,
-      sessionCount: 0,
-      totalAppLoadTimeMs: 0,
-      appLoadSampleCount: 0,
-      activeSessions: 0,
-      concurrentSessions: 0,
-      peakConcurrentSessions: 0,
-      averageSessionDurationMs: 0,
-      averageAppLoadTimeMs: 0,
-      updatedAt: null,
-    };
+    return getFallbackAnalyticsOverview();
   }
 
   const totalVisits = Number(data?.total_visits || 0);
@@ -732,8 +787,6 @@ const getAnalyticsOverview = async () => {
   };
 };
 
-const ACTIVE_SESSION_TTL_MS = 5 * 60 * 1000;
-
 const syncConcurrentSessions = async () => {
   const supabase = getSupabaseClient(true);
   const ttlSeconds = Math.floor(ACTIVE_SESSION_TTL_MS / 1000);
@@ -743,19 +796,7 @@ const syncConcurrentSessions = async () => {
 
   if (error || !data) {
     console.log(`Analytics sync fallback: ${error?.message || 'missing data'}`);
-    return {
-      totalVisits: 0,
-      totalSessionDurationMs: 0,
-      sessionCount: 0,
-      totalAppLoadTimeMs: 0,
-      appLoadSampleCount: 0,
-      averageSessionDurationMs: 0,
-      averageAppLoadTimeMs: 0,
-      activeSessions: 0,
-      concurrentSessions: 0,
-      peakConcurrentSessions: 0,
-      updatedAt: null,
-    };
+    return getFallbackAnalyticsOverview();
   }
 
   return {
@@ -950,8 +991,9 @@ app.post('/server/analytics/visit', async (c) => {
       p_user_type: safeUserType,
     });
     if (rpcError) {
-      throw new Error(rpcError.message);
+      console.log(`Analytics visit RPC fallback: ${rpcError.message}`);
     }
+    await updateFallbackAnalytics({ totalVisits: 1 });
 
     if (sessionId) {
       await upsertSessionMeta(sessionId, {
@@ -998,8 +1040,12 @@ app.post('/server/analytics/session', async (c) => {
     });
 
     if (error) {
-      throw new Error(error.message);
+      console.log(`Analytics session fallback: ${error.message}`);
     }
+    await updateFallbackAnalytics({
+      sessionCount: 1,
+      totalSessionDurationMs: durationMs,
+    });
     return c.json({ message: 'Session tracked' }, 201);
   } catch (error) {
     console.log(`Analytics session error: ${error}`);
@@ -1029,12 +1075,12 @@ app.post('/server/analytics/load', async (c) => {
       .upsert({ id: 1 }, { onConflict: 'id', ignoreDuplicates: true });
     
     if (initError) {
-      return c.json({ 
-        error: 'Failed to initialize analytics_overview',
-        details: initError.message,
-        code: initError.code,
-        hint: initError.hint
-      }, 500);
+      console.log(`Analytics load init fallback: ${initError.message}`);
+      await updateFallbackAnalytics({
+        totalAppLoadTimeMs: loadTimeMs,
+        appLoadSampleCount: 1,
+      });
+      return c.json({ message: 'Load time tracked (fallback)' }, 201);
     }
     
     // Use ACID function for safe concurrent updates
@@ -1058,12 +1104,16 @@ app.post('/server/analytics/load', async (c) => {
           });
 
         if (eventError) {
+          await updateFallbackAnalytics({
+            totalAppLoadTimeMs: loadTimeMs,
+            appLoadSampleCount: 1,
+          });
           return c.json({
             error: 'Fallback event insert failed',
             details: eventError.message,
             code: eventError.code,
             hint: eventError.hint,
-          }, 500);
+          }, 201);
         }
 
         const { data: overview, error: overviewReadError } = await supabase
@@ -1073,12 +1123,16 @@ app.post('/server/analytics/load', async (c) => {
           .single();
 
         if (overviewReadError) {
+          await updateFallbackAnalytics({
+            totalAppLoadTimeMs: loadTimeMs,
+            appLoadSampleCount: 1,
+          });
           return c.json({
             error: 'Fallback overview read failed',
             details: overviewReadError.message,
             code: overviewReadError.code,
             hint: overviewReadError.hint,
-          }, 500);
+          }, 201);
         }
 
         const { error: overviewUpdateError } = await supabase
@@ -1091,13 +1145,22 @@ app.post('/server/analytics/load', async (c) => {
           .eq('id', 1);
 
         if (overviewUpdateError) {
+          await updateFallbackAnalytics({
+            totalAppLoadTimeMs: loadTimeMs,
+            appLoadSampleCount: 1,
+          });
           return c.json({
             error: 'Fallback overview update failed',
             details: overviewUpdateError.message,
             code: overviewUpdateError.code,
             hint: overviewUpdateError.hint,
-          }, 500);
+          }, 201);
         }
+
+        await updateFallbackAnalytics({
+          totalAppLoadTimeMs: loadTimeMs,
+          appLoadSampleCount: 1,
+        });
 
         return c.json({
           message: 'Load time tracked (fallback due to overloaded RPC)',
@@ -1105,14 +1168,21 @@ app.post('/server/analytics/load', async (c) => {
         }, 201);
       }
 
+      await updateFallbackAnalytics({
+        totalAppLoadTimeMs: loadTimeMs,
+        appLoadSampleCount: 1,
+      });
+
       return c.json({ 
-        error: 'Database function error', 
+        message: 'Load time tracked (fallback)',
         details: error.message,
-        code: error.code,
-        hint: error.hint,
-        fullError: JSON.stringify(error)
-      }, 500);
+      }, 201);
     }
+
+    await updateFallbackAnalytics({
+      totalAppLoadTimeMs: loadTimeMs,
+      appLoadSampleCount: 1,
+    });
 
     return c.json({ message: 'Load time tracked', data }, 201);
   } catch (error) {
@@ -1148,7 +1218,7 @@ app.post('/server/analytics/session/start', async (c) => {
     });
 
     if (error) {
-      throw new Error(error.message);
+      console.log(`Analytics session start fallback: ${error.message}`);
     }
 
     await upsertSessionMeta(sessionId, {
@@ -1167,10 +1237,14 @@ app.post('/server/analytics/session/start', async (c) => {
       startedAt: payload?.startedAt || new Date().toISOString(),
     });
 
+    const activeSessions = error ? await getActiveSessionsFromKv() : Number(data?.active_sessions || 0);
+    const concurrentSessions = error ? activeSessions : Number(data?.concurrent_sessions || 0);
+    await updateFallbackAnalytics({ peakConcurrentSessions: concurrentSessions });
+
     return c.json({
       message: 'Session started',
-      activeSessions: Number(data?.active_sessions || 0),
-      concurrentSessions: Number(data?.concurrent_sessions || 0),
+      activeSessions,
+      concurrentSessions,
     }, 201);
   } catch (error) {
     console.log(`Analytics session start error: ${error}`);
@@ -1202,7 +1276,7 @@ app.post('/server/analytics/session/ping', async (c) => {
     });
 
     if (error) {
-      throw new Error(error.message);
+      console.log(`Analytics session ping fallback: ${error.message}`);
     }
 
     await upsertSessionMeta(sessionId, {
@@ -1219,10 +1293,14 @@ app.post('/server/analytics/session/ping', async (c) => {
       userType: safeUserType,
     });
 
+    const activeSessions = error ? await getActiveSessionsFromKv() : Number(data?.active_sessions || 0);
+    const concurrentSessions = error ? activeSessions : Number(data?.concurrent_sessions || 0);
+    await updateFallbackAnalytics({ peakConcurrentSessions: concurrentSessions });
+
     return c.json({
       message: 'Session ping tracked',
-      activeSessions: Number(data?.active_sessions || 0),
-      concurrentSessions: Number(data?.concurrent_sessions || 0),
+      activeSessions,
+      concurrentSessions,
     });
   } catch (error) {
     console.log(`Analytics session ping error: ${error}`);
@@ -1257,8 +1335,13 @@ app.post('/server/analytics/session/end', async (c) => {
     });
 
     if (error) {
-      throw new Error(error.message);
+      console.log(`Analytics session end fallback: ${error.message}`);
     }
+
+    await updateFallbackAnalytics({
+      sessionCount: 1,
+      totalSessionDurationMs: durationMs,
+    });
 
     await appendSessionActivity(sessionId, {
       type: 'session_end',
@@ -1267,10 +1350,13 @@ app.post('/server/analytics/session/end', async (c) => {
     });
     await kv.del(getSessionMetaKey(sessionId));
 
+    const activeSessions = error ? await getActiveSessionsFromKv() : Number(data?.active_sessions || 0);
+    const concurrentSessions = error ? activeSessions : Number(data?.concurrent_sessions || 0);
+
     return c.json({
       message: 'Session ended',
-      activeSessions: Number(data?.active_sessions || 0),
-      concurrentSessions: Number(data?.concurrent_sessions || 0),
+      activeSessions,
+      concurrentSessions,
     }, 201);
   } catch (error) {
     console.log(`Analytics session end error: ${error}`);

@@ -1441,6 +1441,8 @@ export const collectorAPI = {
 export const analyticsAPI = {
   isLocalAnalyticsDisabled() {
     if (typeof window === 'undefined') return false;
+    const disableLocal = String(import.meta.env.VITE_DISABLE_LOCAL_ANALYTICS || '').toLowerCase() === 'true';
+    if (!disableLocal) return false;
     const host = window.location.hostname;
     return host === 'localhost' || host === '127.0.0.1';
   },
