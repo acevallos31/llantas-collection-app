@@ -72,8 +72,9 @@ export default function HistoryPage() {
   const [selectedTrace, setSelectedTrace] = useState<CollectionTrace | null>(null);
 
   useEffect(() => {
-    loadCollections();
-  }, []);
+    if (!user?.id) return;
+    void loadCollections();
+  }, [user?.id, user?.type]);
 
   const loadCollections = async () => {
     try {
@@ -82,8 +83,29 @@ export default function HistoryPage() {
       setCollections(data || []);
 
       if (user?.id) {
-        const userStats = await statsAPI.get(user.id);
-        setStats(userStats);
+        if (user.type === 'collector') {
+          const collectorCollections = (data || []).filter((item: Collection) => item.collectorId === user.id);
+          const completedByCollector = collectorCollections.filter((item: Collection) => item.status === 'completed');
+          const totalTires = completedByCollector.reduce((sum: number, item: Collection) => sum + Number(item.tireCount || 0), 0);
+          const totalPoints = completedByCollector.reduce(
+            (sum: number, item: Collection) => sum + Number(item.collectorBonusPoints || 0),
+            0,
+          );
+          const co2Saved = totalTires * 3.25;
+          const recycledWeight = totalTires * 5;
+
+          setStats({
+            totalCollections: completedByCollector.length,
+            totalTires,
+            totalPoints,
+            co2Saved,
+            treesEquivalent: Math.floor(co2Saved / 20),
+            recycledWeight,
+          });
+        } else {
+          const userStats = await statsAPI.get(user.id);
+          setStats(userStats);
+        }
       }
     } catch (error) {
       console.error('Error loading collections:', error);
