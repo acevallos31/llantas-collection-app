@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext.js';
 import { marketplaceAPI } from '../services/api.js';
@@ -51,14 +51,8 @@ export default function AdminMarketplacePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(defaultForm);
   const [imagePreview, setImagePreview] = useState<string>('');
-  const formRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = user?.type === 'admin';
-
-  const editingProduct = useMemo(
-    () => products.find((item) => item.id === editingId) || null,
-    [products, editingId],
-  );
 
   const loadData = async () => {
     try {
@@ -83,28 +77,23 @@ export default function AdminMarketplacePage() {
     void loadData();
   }, []);
 
-  useEffect(() => {
-    if (!editingProduct) return;
+  const startEditing = (product: MarketplaceProduct) => {
+    setEditingId(product.id);
     setForm({
-      name: editingProduct.name || '',
-      description: editingProduct.description || '',
-      tireType: editingProduct.tireType || 'Automovil',
-      tireCondition: editingProduct.tireCondition || 'buena',
-      price: String(editingProduct.price || 0),
-      stock: String(editingProduct.stock || 0),
-      sellerType: editingProduct.sellerType || 'point',
-      collectorId: editingProduct.collectorId || '',
-      pointId: editingProduct.pointId || '',
-      active: editingProduct.active !== false,
-      photoUrl: editingProduct.photoUrl || '',
+      name: product.name || '',
+      description: product.description || '',
+      tireType: product.tireType || 'Automovil',
+      tireCondition: product.tireCondition || 'buena',
+      price: String(product.price || 0),
+      stock: String(product.stock || 0),
+      sellerType: product.sellerType || 'point',
+      collectorId: product.collectorId || '',
+      pointId: product.pointId || '',
+      active: product.active !== false,
+      photoUrl: product.photoUrl || '',
     });
-    
-    // Scroll al formulario
-    setTimeout(() => {
-      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 100);
-    setImagePreview(editingProduct.photoUrl || '');
-  }, [editingProduct]);
+    setImagePreview(product.photoUrl || '');
+  };
 
   const clearForm = () => {
     setEditingId(null);
@@ -254,11 +243,9 @@ export default function AdminMarketplacePage() {
             </TabsList>
 
             <TabsContent value="products" className="space-y-4">
-              <Card ref={formRef} className="p-4 space-y-3 border-2 border-blue-300 shadow-md">
-                <h3 className="font-semibold flex items-center gap-2">
-                  {editingId ? <Pencil className="w-4 h-4 text-blue-600" /> : <Plus className="w-4 h-4" />}
-                  {editingId ? <span className="text-blue-600">Editando: {form.name || 'Sin nombre'}</span> : 'Nuevo producto'}
-                </h3>
+              {!editingId && (
+                <Card className="p-4 space-y-3">
+                  <h3 className="font-semibold flex items-center gap-2"><Plus className="w-4 h-4" /> Nuevo producto</h3>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   <div className="space-y-1">
@@ -385,15 +372,13 @@ export default function AdminMarketplacePage() {
                   </Button>
                 </div>
 
-                <div className="flex gap-2">
-                  <Button onClick={() => void handleSave()} disabled={submitting}>
-                    {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4 mr-1" /> Guardar</>}
-                  </Button>
-                  {editingId && (
-                    <Button variant="outline" onClick={clearForm}>Cancelar edición</Button>
-                  )}
-                </div>
-              </Card>
+                  <div className="flex gap-2">
+                    <Button onClick={() => void handleSave()} disabled={submitting}>
+                      {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4 mr-1" /> Guardar</>}
+                    </Button>
+                  </div>
+                </Card>
+              )}
 
               <Card className="p-4 bg-amber-50 border-amber-200">
                 <div className="flex items-center justify-between gap-2">
@@ -426,10 +411,69 @@ export default function AdminMarketplacePage() {
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Button size="sm" variant="outline" onClick={() => setEditingId(item.id)}><Pencil className="w-4 h-4" /></Button>
+                        <Button size="sm" variant="outline" onClick={() => startEditing(item)}><Pencil className="w-4 h-4" /></Button>
                         <Button size="sm" variant="destructive" onClick={() => void handleDelete(item.id)}><Trash2 className="w-4 h-4" /></Button>
                       </div>
                     </div>
+
+                    {editingId === item.id && (
+                      <div className="mt-4 pt-4 border-t border-blue-200 space-y-3 bg-blue-50 rounded p-3">
+                        <p className="text-sm font-semibold text-blue-800">Editando este producto</p>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <Label>Nombre</Label>
+                            <Input value={form.name} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, name: e.target.value })} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Tipo de llanta</Label>
+                            <Input value={form.tireType} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, tireType: e.target.value })} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Condición</Label>
+                            <Input value={form.tireCondition} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, tireCondition: e.target.value })} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Precio (L)</Label>
+                            <Input type="number" value={form.price} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, price: e.target.value })} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Stock</Label>
+                            <Input type="number" value={form.stock} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, stock: e.target.value })} />
+                          </div>
+                          <div className="space-y-1">
+                            <Label>Canal de venta</Label>
+                            <select
+                              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                              value={form.sellerType}
+                              onChange={(e) => setForm({ ...form, sellerType: e.target.value as 'collector' | 'point' | 'mixed' })}
+                            >
+                              <option value="collector">Recolector</option>
+                              <option value="point">Centro de acopio</option>
+                              <option value="mixed">Ambos</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label>Descripción</Label>
+                          <Textarea value={form.description} onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setForm({ ...form, description: e.target.value })} rows={2} />
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" variant={form.active ? 'default' : 'outline'} onClick={() => setForm({ ...form, active: !form.active })}>
+                            {form.active ? 'Activo' : 'Inactivo'}
+                          </Button>
+                        </div>
+
+                        <div className="flex gap-2">
+                          <Button onClick={() => void handleSave()} disabled={submitting}>
+                            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Save className="w-4 h-4 mr-1" /> Guardar cambios</>}
+                          </Button>
+                          <Button variant="outline" onClick={clearForm}>Cancelar edición</Button>
+                        </div>
+                      </div>
+                    )}
                   </Card>
                 ))}
 
