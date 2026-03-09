@@ -227,7 +227,7 @@ export default function CollectorDashboardPage() {
   // Update collector location in real-time when route is active
   useEffect(() => {
     const hasActiveCollections = collections.some(
-      (c) => c.status === 'in-progress' && c.collectorId === user?.id
+      (c) => (c.status === 'pending' || c.status === 'in-progress' || c.status === 'arrived') && c.collectorId === user?.id
     );
     
     if (!isCollector || !hasActiveCollections) {
@@ -251,7 +251,7 @@ export default function CollectorDashboardPage() {
           
           try {
             await collectorAPI.updateLocation(lat, lng);
-            console.log('📍 Location updated:', lat, lng);
+            console.log('📍 Collector location updated:', lat, lng);
           } catch (error) {
             console.error('Error updating location:', error);
           }

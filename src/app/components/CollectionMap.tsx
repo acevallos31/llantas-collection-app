@@ -90,6 +90,8 @@ export default function CollectionMap({
 
     layerGroup.clearLayers();
 
+    console.log('CollectionMap rendering with collectorLocation:', collectorLocation);
+
     points.forEach((point) => {
       const loadPercentage = (point.currentLoad / point.capacity) * 100;
       const markerColor = loadPercentage >= 90 ? '#dc2626' : loadPercentage >= 70 ? '#f59e0b' : '#16a34a';
@@ -151,6 +153,7 @@ export default function CollectionMap({
     }
 
     if (collectorLocation) {
+      console.log('Adding collector marker at:', collectorLocation.lat, collectorLocation.lng);
       const collectorMarker = L.circleMarker([collectorLocation.lat, collectorLocation.lng], {
         radius: 10,
         color: '#f97316',

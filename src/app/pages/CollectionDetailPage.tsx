@@ -79,7 +79,17 @@ export default function CollectionDetailPage() {
 
   // Load collector location in real-time when collector is assigned and collection is in progress
   useEffect(() => {
-    if (!collection?.collectorId || collection.status === 'completed' || collection.status === 'cancelled') {
+    if (!collection?.collectorId) {
+      setCollectorLocation(null);
+      if (locationIntervalRef.current) {
+        window.clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+      return;
+    }
+
+    // Only stop tracking if collection is completed or cancelled
+    if (collection.status === 'completed' || collection.status === 'cancelled') {
       setCollectorLocation(null);
       if (locationIntervalRef.current) {
         window.clearInterval(locationIntervalRef.current);
@@ -90,7 +100,9 @@ export default function CollectionDetailPage() {
 
     const loadCollectorLocation = async () => {
       try {
+        console.log('Loading collector location for:', collection.collectorId);
         const locationData = await collectorAPI.getCollectorLocation(collection.collectorId!);
+        console.log('Collector location loaded:', locationData);
         setCollectorLocation({
           lat: locationData.lat,
           lng: locationData.lng,
@@ -98,6 +110,7 @@ export default function CollectionDetailPage() {
         });
       } catch (error) {
         console.error('Error loading collector location:', error);
+        // Don't clear location on error, keep last known position
       }
     };
 
