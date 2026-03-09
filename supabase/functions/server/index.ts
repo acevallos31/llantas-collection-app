@@ -225,158 +225,115 @@ const ensureMarketplaceSeed = async () => {
   const pointByIndex = (index: number) => pointList[index % Math.max(pointList.length, 1)] || null;
   const collectorByIndex = (index: number) => collectorList[index % Math.max(collectorList.length, 1)] || null;
 
-  const inventoryRows = await Promise.all(
-    pointList.map(async (point: any) => {
-      const inventory = await kv.getByPrefix(`inventory:${point.id}:`);
-      return inventory.map((item: any) => ({ ...item, pointName: point.name }));
-    }),
-  );
+  // Numeraciones realistas por tipo de llanta
+  const numeraciones = {
+    Automovil: [
+      // Rin 13-14: Autos compactos
+      '155/70R13', '175/65R14', '185/60R14', '165/70R14', '175/70R13',
+      // Rin 15: Sedanes/Compactos
+      '185/65R15', '195/55R15', '195/65R15', '175/65R15', '205/65R15',
+      // Rin 16: Sedanes/SUVs pequeños
+      '205/55R16', '215/60R16', '225/50R16', '195/55R16', '215/55R16',
+      // Rin 17-18: SUV/Deportivos
+      '225/45R17', '225/40R18', '235/55R17', '245/45R18', '225/45R18',
+    ],
+    Camion: ['275/80R22.5', '295/80R22.5', '315/80R22.5', '385/65R22.5', '11R22.5', '12R22.5'],
+    Autobus: ['275/70R22.5', '295/75R22.5', '315/70R22.5', '385/65R22.5', '10.00R20', '11.00R20'],
+    Motocicleta: ['90/90-17', '100/90-17', '110/90-17', '120/90-17', '130/90-15', '140/70-17', '150/70-18', '160/60-17', '170/60-18', '180/55-17'],
+    Bicicleta: ['26x1.95', '26x2.1', '27.5x2.2', '27.5x2.4', '29x2.0', '29x2.1', '29x2.4', '20x1.75', '20x2.0', '24x1.95'],
+  };
 
-  const inventoryItems = inventoryRows.flat();
-  const reusableInventoryItems = inventoryItems.filter((item: any) => {
-    const condition = normalizeLabel(item?.tireCondition || item?.condition || 'buena');
-    return condition === 'buena' || condition === 'excelente';
-  });
+  const brands = {
+    Automovil: ['Michelin', 'Continental', 'Bridgestone', 'Goodyear', 'Pirelli', 'Dunlop', 'Yokohama', 'Firestone'],
+    Camion: ['Bridgestone', 'Michelin', 'Goodyear', 'Continental', 'Artic', 'Hankook'],
+    Autobus: ['Bridgestone', 'Michelin', 'Goodyear', 'Continental', 'Artic'],
+    Motocicleta: ['Pirelli', 'Michelin', 'Dunlop', 'Metzeler', 'Bridgestone', 'Continental'],
+    Bicicleta: ['Maxxis', 'Schwalbe', 'Kenda', 'Continental', 'Vittoria'],
+  };
 
-  const demoProducts: any[] = [
-    {
-      name: 'Lote x4 llantas Automovil 205/55R16 - Excelente',
-      description: 'Lote de 4 llantas de automovil, medida 205/55R16, estado excelente, desgaste uniforme, lista para montaje inmediato.',
-      tireType: 'Automovil',
-      tireBrand: 'Michelin',
-      tireModel: 'Primacy',
-      tireSize: '205/55R16',
-      numeration: '205/55R16 91V',
-      lotSize: 4,
-      tireCondition: 'excelente',
-      price: 6400,
-      stock: 6,
-      sellerType: 'point',
-      marketType: 'resale',
-      photos: MARKETPLACE_PHOTOS.automovil,
-    },
-    {
-      name: 'Lote x2 llantas Camion 295/80R22.5 - Buena',
-      description: 'Par de llantas para camion 295/80R22.5, carcasa en buen estado, recomendadas para eje de traccion secundaria.',
-      tireType: 'Camion',
-      tireBrand: 'Bridgestone',
-      tireModel: 'M840',
-      tireSize: '295/80R22.5',
-      numeration: '295/80R22.5 152/148M',
-      lotSize: 2,
-      tireCondition: 'buena',
-      price: 8600,
-      stock: 5,
-      sellerType: 'point',
-      marketType: 'resale',
-      photos: MARKETPLACE_PHOTOS.camion,
-    },
-    {
-      name: 'Lote x8 llantas Motocicleta 110/90-17 - Buena',
-      description: 'Paquete mayorista de 8 llantas para motocicleta, medidas mixtas 110/90-17 y 90/90-17, ideal para taller.',
-      tireType: 'Motocicleta',
-      tireBrand: 'Pirelli',
-      tireModel: 'Sport Demon',
-      tireSize: '110/90-17',
-      numeration: '110/90-17 60H',
-      lotSize: 8,
-      tireCondition: 'buena',
-      price: 7200,
-      stock: 4,
-      sellerType: 'mixed',
-      marketType: 'resale',
-      photos: MARKETPLACE_PHOTOS.motocicleta,
-    },
-    {
-      name: 'Llanta Autobus 275/70R22.5 - Excelente',
-      description: 'Unidad de llanta para autobus urbano/interurbano, numeracion 275/70R22.5, estado excelente.',
-      tireType: 'Autobus',
-      tireBrand: 'Goodyear',
-      tireModel: 'UrbanMax',
-      tireSize: '275/70R22.5',
-      numeration: '275/70R22.5 148J',
-      lotSize: 1,
-      tireCondition: 'excelente',
-      price: 5900,
-      stock: 7,
-      sellerType: 'collector',
-      marketType: 'resale',
-      photos: MARKETPLACE_PHOTOS.autobus,
-    },
-    {
-      name: 'Llanta Bicicleta 29x2.10 - Buena',
-      description: 'Llanta para bicicleta de montana 29x2.10, taco intermedio y estructura reforzada, estado bueno.',
-      tireType: 'Bicicleta',
-      tireBrand: 'Maxxis',
-      tireModel: 'CrossMark',
-      tireSize: '29x2.10',
-      numeration: '29x2.10 60TPI',
-      lotSize: 1,
-      tireCondition: 'buena',
-      price: 680,
-      stock: 14,
-      sellerType: 'point',
-      marketType: 'resale',
-      photos: MARKETPLACE_PHOTOS.bicicleta,
-    },
-    {
-      name: 'Lote reciclaje caucho triturado - Llanta regular/desgastada',
-      description: 'Material para reciclaje y transformacion en materia prima. No apto para reventa vehicular.',
-      tireType: 'Mixto',
-      tireBrand: 'N/A',
-      tireModel: 'Reciclaje',
-      tireSize: 'Mixto',
-      numeration: 'Material reciclable',
-      lotSize: 20,
-      tireCondition: 'desgastada',
-      price: 1200,
-      stock: 10,
-      sellerType: 'point',
-      marketType: 'recycling',
-      photos: MARKETPLACE_PHOTOS.reciclaje,
-    },
+  const models = {
+    Automovil: ['Primacy', 'Eco Contact', 'Turanza', 'Assurance', 'Dragon Sport', 'SP Sport', 'Giti'],
+    Camion: ['M840', 'Duravis', 'Wrangler', 'ComfortTour', 'Cargo MIX'],
+    Autobus: ['UrbanMax', 'EuroCity', 'BusMax', 'Turbo'],
+    Motocicleta: ['Sport Demon', 'Scorer', 'Moto GP', 'RoadRide'],
+    Bicicleta: ['CrossMark', 'Marathon', 'All Condition', 'Rubber Queen'],
+  };
+
+  const demoProducts: any[] = [];
+
+  // Generar 50+ productos variados
+  const typeConfigs = [
+    { type: 'Automovil', count: 20, photos: MARKETPLACE_PHOTOS.automovil, priceRange: [1200, 3500] },
+    { type: 'Camion', count: 10, photos: MARKETPLACE_PHOTOS.camion, priceRange: [3500, 8500] },
+    { type: 'Autobus', count: 8, photos: MARKETPLACE_PHOTOS.autobus, priceRange: [4000, 7500] },
+    { type: 'Motocicleta', count: 12, photos: MARKETPLACE_PHOTOS.motocicleta, priceRange: [800, 2500] },
+    { type: 'Bicicleta', count: 8, photos: MARKETPLACE_PHOTOS.bicicleta, priceRange: [150, 800] },
   ];
 
-  // Generate extra products from real inventory arrivals (good/excellent only)
-  reusableInventoryItems.slice(0, 8).forEach((item: any, index: number) => {
-    const point = pointByIndex(index);
-    const tireType = item.tireType || 'Automovil';
-    const condition = normalizeLabel(item.tireCondition || 'buena') === 'excelente' ? 'excelente' : 'buena';
-    const size = tireType === 'Camion' ? '295/80R22.5' : tireType === 'Motocicleta' ? '110/90-17' : '205/55R16';
-    const photos = MARKETPLACE_PHOTOS[normalizeLabel(tireType)] || MARKETPLACE_PHOTOS.automovil;
-    demoProducts.push({
-      name: `${tireType} ${size} - ${condition === 'excelente' ? 'Excelente' : 'Buena'} (${point?.name || 'Centro'})`,
-      description: `Producto generado desde inventario real del centro ${point?.name || 'N/A'}. Estado ${condition}. Numeracion ${size}.`,
-      tireType,
-      tireBrand: 'Mixto',
-      tireModel: 'Inventario Centro',
-      tireSize: size,
-      numeration: size,
-      lotSize: 1,
-      tireCondition: condition,
-      price: condition === 'excelente' ? 2400 : 1800,
-      stock: Math.max(1, Number(item.tireCount || 1)),
-      sellerType: 'point',
-      marketType: 'resale',
-      photos,
-      forcePointId: point?.id || null,
-    });
+  let globalIdx = 0;
+  for (const config of typeConfigs) {
+    for (let i = 0; i < config.count; i += 1, globalIdx += 1) {
+      const condition = i % 3 === 0 ? 'excelente' : 'buena';
+      const numeration = numeraciones[config.type as keyof typeof numeraciones][i % numeraciones[config.type as keyof typeof numeraciones].length];
+      const brand = brands[config.type as keyof typeof brands][i % brands[config.type as keyof typeof brands].length];
+      const model = models[config.type as keyof typeof models][i % models[config.type as keyof typeof models].length];
+      const priceMultiplier = condition === 'excelente' ? 1.3 : 1.0;
+      const basePrice = config.priceRange[0] + (i % 5) * (config.priceRange[1] - config.priceRange[0]) / 5;
+      const price = Math.round(basePrice * priceMultiplier);
+      const lotSize = config.type === 'Automovil' && i % 4 === 0 ? 4 : config.type === 'Camion' && i % 3 === 0 ? 2 : 1;
+      const stock = Math.max(1, 5 + (i % 10));
+
+      demoProducts.push({
+        name: `Llanta ${config.type} ${numeration} ${brand} ${model} - ${condition === 'excelente' ? 'Excelente' : 'Buena'}${lotSize > 1 ? ` (Lote x${lotSize})` : ''}`,
+        description: `Llanta de ${config.type.toLowerCase()} marca ${brand} modelo ${model}. Numeración: ${numeration}. Estado: ${condition}. Desgaste uniforme, lista para montaje. ${lotSize > 1 ? `Incluye lote de ${lotSize} unidades.` : 'Venta unitaria.'}`,
+        tireType: config.type,
+        tireBrand: brand,
+        tireModel: model,
+        tireSize: numeration,
+        numeration: numeration,
+        lotSize: lotSize,
+        tireCondition: condition,
+        price: price,
+        stock: stock,
+        sellerType: i % 3 === 0 ? 'collector' : i % 3 === 1 ? 'mixed' : 'point',
+        marketType: 'resale',
+        photos: config.photos,
+      });
+    }
+  }
+
+  // Agregar productos de reciclaje
+  demoProducts.push({
+    name: 'Lote caucho reciclado - Material para transformación',
+    description: 'Material reciclado de llantas desgastadas. No apto para reventa vehicular. Ideal para transformación en aglomerado, pavimento, etc.',
+    tireType: 'Reciclaje',
+    tireBrand: 'N/A',
+    tireModel: 'Reciclaje Industrial',
+    tireSize: 'Mixto',
+    numeration: 'Material reciclable',
+    lotSize: 50,
+    tireCondition: 'desgastada',
+    price: 1200,
+    stock: 20,
+    sellerType: 'point',
+    marketType: 'recycling',
+    photos: MARKETPLACE_PHOTOS.reciclaje,
   });
 
+  // Guardar todos los productos
   for (let idx = 0; idx < demoProducts.length; idx += 1) {
     const seed = demoProducts[idx];
     const productId = crypto.randomUUID();
     const now = new Date().toISOString();
-    const assignedPoint = seed.forcePointId
-      ? pointList.find((item: any) => item.id === seed.forcePointId)
-      : pointByIndex(idx);
-    const assignedCollector = collectorByIndex(idx);
+    const assignedPoint = pointByIndex(idx);
+    const assignedCollector = seed.sellerType === 'collector' || seed.sellerType === 'mixed' ? collectorByIndex(idx) : null;
+
     const payload = {
       id: productId,
       name: seed.name,
       description: seed.description,
       tireType: seed.tireType,
-      tireBrand: seed.tireBrand || 'Mixto',
+      tireBrand: seed.tireBrand || 'N/A',
       tireModel: seed.tireModel || 'N/A',
       tireSize: seed.tireSize || seed.numeration || 'N/A',
       numeration: seed.numeration || seed.tireSize || 'N/A',
@@ -390,9 +347,9 @@ const ensureMarketplaceSeed = async () => {
       sellerType: seed.sellerType,
       pointId: seed.sellerType === 'point' || seed.sellerType === 'mixed' ? (assignedPoint?.id || null) : null,
       pointName: seed.sellerType === 'point' || seed.sellerType === 'mixed' ? (assignedPoint?.name || null) : null,
-      collectorId: seed.sellerType === 'collector' || seed.sellerType === 'mixed' ? (assignedCollector?.id || null) : null,
-      collectorName: seed.sellerType === 'collector' || seed.sellerType === 'mixed' ? (assignedCollector?.name || null) : null,
-      active: seed.active !== false,
+      collectorId: assignedCollector?.id || null,
+      collectorName: assignedCollector?.name || null,
+      active: true,
       createdAt: now,
       updatedAt: now,
     };
