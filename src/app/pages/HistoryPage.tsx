@@ -94,9 +94,26 @@ export default function HistoryPage() {
     }
   };
 
-  const filteredCollections = collections.filter(collection => 
-    filter === 'all' ? true : collection.status === filter
-  );
+  const isCollector = user?.type === 'collector';
+
+  // For collectors, history should only show collections assigned to them.
+  const scopedCollections = isCollector
+    ? collections.filter((collection) => collection.collectorId === user?.id)
+    : collections;
+
+  const filteredCollections = scopedCollections
+    .filter((collection) => (filter === 'all' ? true : collection.status === filter))
+    .sort((a, b) => {
+      if (filter === 'pending') {
+        const aDate = a.scheduledDate ? new Date(a.scheduledDate).getTime() : Number.MAX_SAFE_INTEGER;
+        const bDate = b.scheduledDate ? new Date(b.scheduledDate).getTime() : Number.MAX_SAFE_INTEGER;
+        return aDate - bDate;
+      }
+
+      const aCreated = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bCreated = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bCreated - aCreated;
+    });
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -267,19 +284,19 @@ export default function HistoryPage() {
         <div className="grid grid-cols-3 gap-3">
           <Card className="bg-white/10 backdrop-blur border-white/20 p-3 text-center">
             <div className="text-2xl font-bold">
-              {collections.filter(c => c.status === 'completed').length}
+              {scopedCollections.filter(c => c.status === 'completed').length}
             </div>
             <div className="text-xs text-green-100">Completadas</div>
           </Card>
           <Card className="bg-white/10 backdrop-blur border-white/20 p-3 text-center">
             <div className="text-2xl font-bold">
-              {collections.filter(c => c.status === 'in-progress').length}
+              {scopedCollections.filter(c => c.status === 'in-progress').length}
             </div>
             <div className="text-xs text-green-100">En Proceso</div>
           </Card>
           <Card className="bg-white/10 backdrop-blur border-white/20 p-3 text-center">
             <div className="text-2xl font-bold">
-              {collections.filter(c => c.status === 'pending').length}
+              {scopedCollections.filter(c => c.status === 'pending').length}
             </div>
             <div className="text-xs text-green-100">Pendientes</div>
           </Card>
