@@ -1419,7 +1419,14 @@ export const collectorAPI = {
 };
 
 export const analyticsAPI = {
+  isLocalAnalyticsDisabled() {
+    if (typeof window === 'undefined') return false;
+    const host = window.location.hostname;
+    return host === 'localhost' || host === '127.0.0.1';
+  },
+
   async trackVisit(path: string, sessionId?: string) {
+    if (this.isLocalAnalyticsDisabled()) return;
     try {
       await fetch(`${API_BASE_URL}/analytics/visit`, {
         method: 'POST',
@@ -1432,6 +1439,7 @@ export const analyticsAPI = {
   },
 
   async trackSession(durationMs: number) {
+    if (this.isLocalAnalyticsDisabled()) return;
     try {
       await fetch(`${API_BASE_URL}/analytics/session`, {
         method: 'POST',
@@ -1444,6 +1452,7 @@ export const analyticsAPI = {
   },
 
   async trackAppLoadTime(loadTimeMs: number) {
+    if (this.isLocalAnalyticsDisabled()) return;
     try {
       const response = await fetch(`${API_BASE_URL}/analytics/load`, {
         method: 'POST',
@@ -1461,6 +1470,7 @@ export const analyticsAPI = {
   },
 
   async startSession(sessionId: string, startedAt: string) {
+    if (this.isLocalAnalyticsDisabled()) return { blocked: false };
     try {
       const response = await fetch(`${API_BASE_URL}/analytics/session/start`, {
         method: 'POST',
@@ -1485,6 +1495,7 @@ export const analyticsAPI = {
   },
 
   async endSession(sessionId: string, durationMs: number) {
+    if (this.isLocalAnalyticsDisabled()) return;
     try {
       const payload = JSON.stringify({ sessionId, durationMs, userType: getAnalyticsUserType() });
       await fetch(`${API_BASE_URL}/analytics/session/end`, {
@@ -1506,6 +1517,7 @@ export const analyticsAPI = {
   },
 
   async pingSession(sessionId: string) {
+    if (this.isLocalAnalyticsDisabled()) return { blocked: false };
     try {
       const response = await fetch(`${API_BASE_URL}/analytics/session/ping`, {
         method: 'POST',
