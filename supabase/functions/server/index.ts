@@ -1687,13 +1687,18 @@ app.get("/server/collections", async (c) => {
     const isCollector = userProfile?.type === 'collector';
 
     // Collectors see global board; generators see only their own collections.
-    const collections = isCollector
+    let collectionsData = isCollector
       ? await kv.getByPrefix('collection:')
       : await kv.getByPrefix(`collection:${user.id}:`);
     
+    // Extract values from KV entries (they come as {key, value} objects)
+    const collections = collectionsData.map((item: any) => item.value || item);
+    
     // Sort by date (most recent first)
     collections.sort((a: any, b: any) => {
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bDate - aDate;
     });
     
     return c.json(collections);
