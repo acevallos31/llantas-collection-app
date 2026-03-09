@@ -111,7 +111,11 @@ export default function CollectionMap({
       marker.addTo(layerGroup);
     });
 
-    collections.forEach((collection) => {
+    const validCollections = collections.filter(
+      (collection) => Number.isFinite(collection.coordinates?.lat) && Number.isFinite(collection.coordinates?.lng),
+    );
+
+    validCollections.forEach((collection) => {
       const marker = L.circleMarker([collection.coordinates.lat, collection.coordinates.lng], {
         radius: 8,
         color: '#2563eb',
@@ -144,11 +148,11 @@ export default function CollectionMap({
     }
 
     // Draw route trace if enabled
-    if (showRouteTrace && userLocation && collections.length > 0) {
+    if (showRouteTrace && userLocation && validCollections.length > 0) {
       const routePoints: LatLngTuple[] = [[userLocation.lat, userLocation.lng]];
       
       // Add all collection points in order
-      collections.forEach((collection) => {
+      validCollections.forEach((collection) => {
         if (Number.isFinite(collection.coordinates?.lat) && Number.isFinite(collection.coordinates?.lng)) {
           routePoints.push([collection.coordinates.lat, collection.coordinates.lng]);
         }
@@ -166,14 +170,14 @@ export default function CollectionMap({
         polyline.bindPopup(
           `<div style="font-size:12px;line-height:1.4">
             <strong>Ruta sugerida</strong><br/>
-            ${collections.length} parada${collections.length > 1 ? 's' : ''}
+            ${validCollections.length} parada${validCollections.length > 1 ? 's' : ''}
           </div>`,
         );
 
         polyline.addTo(layerGroup);
 
         // Add numbered markers for each stop
-        collections.forEach((collection, index) => {
+        validCollections.forEach((collection, index) => {
           const numberMarker = L.marker([collection.coordinates.lat, collection.coordinates.lng], {
             icon: L.divIcon({
               className: 'custom-number-marker',

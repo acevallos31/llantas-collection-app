@@ -102,6 +102,7 @@ export default function CollectorDashboardPage() {
   const requestPollRef = useRef<number | null>(null);
   const answerPollRef = useRef<number | null>(null);
   const lastAutoRefreshRef = useRef(0);
+  const routeSyncIntervalRef = useRef<number | null>(null);
 
   const isCollector = user?.type === 'collector';
 
@@ -135,7 +136,7 @@ export default function CollectorDashboardPage() {
     };
   }, [isCollector]);
 
-  const loadRouteSuggestions = async () => {
+  const loadRouteSuggestions = async (silent = false) => {
     try {
       setRouteLoading(true);
 
@@ -181,12 +182,36 @@ export default function CollectorDashboardPage() {
       setRouteSuggestions(suggestions);
     } catch (error: any) {
       console.error('❌ Route suggestions error:', error);
-      toast.error(error.message || 'No se pudieron generar rutas sugeridas');
+      if (!silent) {
+        toast.error(error.message || 'No se pudieron generar rutas sugeridas');
+      }
       setRouteSuggestions([]);
     } finally {
       setRouteLoading(false);
     }
   };
+  useEffect(() => {
+    if (!isCollector) return;
+
+    // Soft auto-sync to bring in newly created generator requests without aggressive polling.
+    const syncIntervalMs = 45000;
+
+    const syncBoard = () => {
+      if (document.visibilityState !== 'visible') return;
+      void loadCollections(true);
+      void loadRouteSuggestions(true);
+    };
+
+    routeSyncIntervalRef.current = window.setInterval(syncBoard, syncIntervalMs);
+
+    return () => {
+      if (routeSyncIntervalRef.current) {
+        window.clearInterval(routeSyncIntervalRef.current);
+        routeSyncIntervalRef.current = null;
+      }
+    };
+  }, [isCollector]);
+
 
   // Redirect non-collectors
   useEffect(() => {
@@ -430,7 +455,7 @@ export default function CollectorDashboardPage() {
   }, [peerConnection, localStream]);
 
 
-  const loadCollections = async () => {
+  const loadCollections = async (silent = false) => {
     try {
       setLoading(true);
       const all = await collectionsAPI.getAll();
@@ -445,7 +470,9 @@ export default function CollectorDashboardPage() {
       );
       setCollections(actionable);
     } catch (error: any) {
-      toast.error(error.message || 'No se pudo cargar la bandeja de recolecciones');
+      if (!silent) {
+        toast.error(error.message || 'No se pudo cargar la bandeja de recolecciones');
+      }
       setCollections([]);
     } finally {
       setLoading(false);
