@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router';
+import { useAuth } from '../contexts/AuthContext.tsx';
 import { collectionsAPI, collectorAPI } from '../services/api.ts';
 import type { Collection } from '../mockData.ts';
 import { Button } from '../components/ui/button.tsx';
 import { Card } from '../components/ui/card.tsx';
 import { Badge } from '../components/ui/badge.tsx';
 import CollectionMap from '../components/CollectionMap.tsx';
-import { ChevronLeft, Loader2, QrCode, Route, CalendarDays, MapPin, Package } from 'lucide-react';
+import { ChevronLeft, Loader2, QrCode, Route, CalendarDays, MapPin, Package, Phone, Mail, User } from 'lucide-react';
 
 type TraceEvent = {
   stage: string;
@@ -39,12 +40,15 @@ const stageLabels: Record<string, string> = {
 export default function CollectionDetailPage() {
   const navigate = useNavigate();
   const { collectionId = '' } = useParams();
+  const { user } = useAuth();
 
   const [collection, setCollection] = useState<Collection | null>(null);
   const [trace, setTrace] = useState<CollectionTrace | null>(null);
   const [loading, setLoading] = useState(true);
   const [collectorLocation, setCollectorLocation] = useState<{ lat: number; lng: number; collectorName?: string } | null>(null);
   const locationIntervalRef = useRef<number | null>(null);
+
+  const isCollector = user?.type === 'collector';
 
   useEffect(() => {
     const loadDetail = async () => {
@@ -206,6 +210,39 @@ export default function CollectionDetailPage() {
                 <p><span className="text-gray-500">Correo:</span> {collection.generatorEmail || 'N/A'}</p>
               </div>
             </div>
+
+            {/* Contacto del recolector - solo visible para generadores */}
+            {!isCollector && collection.collectorId && (
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                <p className="text-xs font-semibold text-orange-900 mb-2">🚚 Contacto del Recolector</p>
+                <div className="space-y-1 text-sm">
+                  <p className="flex items-center gap-2">
+                    <User className="w-3 h-3 text-gray-500" />
+                    <span className="text-gray-500">Nombre:</span> 
+                    <span className="font-medium">{collection.collectorName || 'N/A'}</span>
+                  </p>
+                  {collection.collectorPhone && (
+                    <p className="flex items-center gap-2">
+                      <Phone className="w-3 h-3 text-gray-500" />
+                      <a href={`tel:${collection.collectorPhone}`} className="text-orange-600 hover:underline">
+                        {collection.collectorPhone}
+                      </a>
+                    </p>
+                  )}
+                  {collection.collectorEmail && (
+                    <p className="flex items-center gap-2">
+                      <Mail className="w-3 h-3 text-gray-500" />
+                      <a href={`mailto:${collection.collectorEmail}`} className="text-orange-600 hover:underline text-xs">
+                        {collection.collectorEmail}
+                      </a>
+                    </p>
+                  )}
+                  {!collection.collectorPhone && !collection.collectorEmail && (
+                    <p className="text-xs text-gray-500 italic">Información de contacto no disponible</p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="mt-4 space-y-2 text-sm">

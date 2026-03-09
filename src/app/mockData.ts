@@ -29,6 +29,8 @@ export interface Collection {
   description?: string;
   collectorId?: string | null;
   collectorName?: string | null;
+  collectorPhone?: string | null;
+  collectorEmail?: string | null;
   generatorName?: string | null;
   generatorPhone?: string | null;
   generatorEmail?: string | null;

@@ -1749,6 +1749,18 @@ app.get("/server/collections/:collectionId", async (c) => {
         collection.generatorEmail = generatorProfile.email || null;
       }
     }
+
+    // Load collector contact info for generators (so they can contact the collector)
+    const canSeeCollectorContact = !isCollector || isAdmin;
+    
+    if (canSeeCollectorContact && collection.collectorId) {
+      const collectorProfile = await kv.get(`user:${collection.collectorId}`);
+      if (collectorProfile) {
+        collection.collectorName = collectorProfile.name || null;
+        collection.collectorPhone = collectorProfile.phone || null;
+        collection.collectorEmail = collectorProfile.email || null;
+      }
+    }
     
     return c.json(collection);
     
