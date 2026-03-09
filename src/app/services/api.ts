@@ -137,10 +137,12 @@ export const getAuthHeaders = (includeAuth = true) => {
   
   if (includeAuth) {
     const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-    // For protected endpoints, only send Authorization when we have a valid JWT-like token.
-    // Sending anon key as Bearer here can trigger confusing gateway failures in some routes.
-    if (token && token.split('.').length === 3) {
+    if (token) {
+      // User is authenticated - send user token
       headers['Authorization'] = `Bearer ${token}`;
+    } else {
+      // No user token - send anon key for public endpoints
+      headers['Authorization'] = `Bearer ${publicAnonKey}`;
     }
   } else {
     // Explicitly public - always use anon key
