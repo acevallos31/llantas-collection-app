@@ -79,4 +79,5 @@
   ## Documentación adicional
 
   - Configuración detallada de Supabase: `SUPABASE_SETUP.md`
+  - Documentación funcional (roles, flujos y funcionalidades): `DOCUMENTACION_APLICACION.md`
   
