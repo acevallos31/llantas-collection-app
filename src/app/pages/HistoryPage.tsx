@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
-import { collectionsAPI, statsAPI } from '../services/api';
+import { collectionsAPI, pointsAPI, statsAPI } from '../services/api';
 import type { Collection } from '../mockData';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
@@ -188,32 +188,30 @@ export default function HistoryPage() {
     URL.revokeObjectURL(url);
   };
 
-  const handleDownloadReceipt = async (collection: Collection) => {
+  const handleDownloadPickupReceipt = async (collection: Collection) => {
     try {
       const trace = await collectionsAPI.getTrace(collection.id);
-      const certificateId = trace?.certificate?.certificateId || `CERT-${collection.id.slice(0, 8).toUpperCase()}`;
+      const pickupEvent = (trace?.events || []).find((event: any) => event?.stage === 'en-proceso');
+      const receiptId = `REC-${collection.id.slice(0, 8).toUpperCase()}`;
       const doc = new jsPDF({ unit: 'mm', format: 'a4' });
       const left = 15;
       let y = 20;
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(16);
-      doc.text('Comprobante Digital de Entrega', left, y);
+      doc.text('Comprobante de Recogida en Cliente', left, y);
 
       y += 10;
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(11);
       const details = [
-        `Comprobante: ${certificateId}`,
+        `Comprobante: ${receiptId}`,
         `Usuario: ${user?.name || 'N/A'} (${user?.email || 'N/A'})`,
-        `Fecha programada: ${collection.scheduledDate || 'N/A'}`,
-        `Fecha completada: ${collection.completedDate || 'N/A'}`,
+        `Fecha de recogida: ${pickupEvent?.timestamp ? new Date(pickupEvent.timestamp).toLocaleString('es-CO') : 'N/A'}`,
         `Tipo de llanta: ${collection.tireType}`,
         `Cantidad: ${collection.tireCount}`,
-        `Direccion: ${collection.address}`,
-        `Puntos generados: ${collection.points}`,
+        `Direccion de cliente: ${collection.address}`,
         `QR trazabilidad: ${trace?.qrCode || 'N/A'}`,
-        `Destino final: ${trace?.certificate?.destinationType || 'N/A'}`,
       ];
 
       details.forEach((line) => {
@@ -222,10 +220,55 @@ export default function HistoryPage() {
         y += wrapped.length * 6;
       });
 
-      doc.save(`comprobante-${collection.id}.pdf`);
-      toast.success('Comprobante descargado');
+      doc.save(`comprobante-recogida-${collection.id}.pdf`);
+      toast.success('Comprobante de recogida descargado');
     } catch (error: any) {
       toast.error(error.message || 'No fue posible descargar el comprobante');
+    }
+  };
+
+  const handleDownloadDeliveryReceipt = async (collection: Collection) => {
+    try {
+      const [trace, points] = await Promise.all([
+        collectionsAPI.getTrace(collection.id),
+        pointsAPI.getAll(),
+      ]);
+
+      const point = (points || []).find((item) => item.id === collection.destinationPointId);
+      const receiptId = `DEL-${collection.id.slice(0, 8).toUpperCase()}`;
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      const left = 15;
+      let y = 20;
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text('Comprobante de Entrega en Acopio', left, y);
+
+      y += 10;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      const details = [
+        `Comprobante: ${receiptId}`,
+        `Usuario: ${user?.name || 'N/A'} (${user?.email || 'N/A'})`,
+        `Fecha de entrega: ${collection.arrivedAtPoint ? new Date(collection.arrivedAtPoint).toLocaleString('es-CO') : (collection.completedDate || 'N/A')}`,
+        `Centro de acopio: ${point?.name || collection.destinationPointId || 'N/A'}`,
+        `Direccion centro: ${point?.address || 'N/A'}`,
+        `Tipo de llanta: ${collection.tireType}`,
+        `Cantidad: ${collection.tireCount}`,
+        `QR trazabilidad: ${trace?.qrCode || 'N/A'}`,
+        `Certificado: ${trace?.certificate?.certificateId || 'N/A'}`,
+      ];
+
+      details.forEach((line) => {
+        const wrapped = doc.splitTextToSize(line, 180);
+        doc.text(wrapped, left, y);
+        y += wrapped.length * 6;
+      });
+
+      doc.save(`comprobante-acopio-${collection.id}.pdf`);
+      toast.success('Comprobante de entrega en acopio descargado');
+    } catch (error: any) {
+      toast.error(error.message || 'No fue posible descargar el comprobante de acopio');
     }
   };
 
@@ -418,7 +461,7 @@ export default function HistoryPage() {
                             }
                           </span>
                           <span className="text-green-600 font-semibold">
-                            +{collection.points} puntos
+                            +{isCollector ? Number(collection.collectorBonusPoints || 0) : Number(collection.points || 0)} puntos
                           </span>
                         </div>
                       </div>
@@ -469,10 +512,19 @@ export default function HistoryPage() {
                           variant="outline"
                           size="sm"
                           className="flex-1"
-                          onClick={() => handleDownloadReceipt(collection)}
+                          onClick={() => handleDownloadPickupReceipt(collection)}
                         >
                           <Download className="w-4 h-4 mr-2" />
-                          Descargar Comprobante
+                          Comp. Recogida
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => handleDownloadDeliveryReceipt(collection)}
+                        >
+                          <Download className="w-4 h-4 mr-2" />
+                          Comp. Acopio
                         </Button>
                       </div>
                     )}

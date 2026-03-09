@@ -1878,8 +1878,8 @@ app.post('/server/collector/collections/:collectionId/take', async (c) => {
 
     // Parse payment info from request body if provided
     const body = await c.req.json().catch(() => ({}));
-    const collectorFreight = body.collectorFreight || 0;
-    const collectorBonusPoints = body.collectorBonusPoints || 0;
+    const collectorFreight = Math.max(0, Number(body.collectorFreight || 0));
+    const collectorBonusPoints = Math.max(0, Number(body.collectorBonusPoints || 0));
 
     const nextCollection = {
       ...current,
@@ -2070,7 +2070,10 @@ app.put("/server/collections/:collectionId", async (c) => {
     // If collection is being completed, update user points and stats
     if (updates.status === 'completed' && currentCollection.status !== 'completed') {
       // Calculate collector compensation if not already set
-      if (isCollector && (!updatedCollection.collectorPaymentAmount || !updatedCollection.collectorBonusPoints)) {
+      const currentCollectorFreight = Math.max(0, Number(updatedCollection.collectorPaymentAmount || 0));
+      const currentCollectorBonusPoints = Math.max(0, Number(updatedCollection.collectorBonusPoints || 0));
+
+      if (isCollector && (currentCollectorFreight <= 0 || currentCollectorBonusPoints <= 0)) {
         const pricing = await getPricingSettings();
         
         // Get collector bonus points from database
@@ -2092,7 +2095,8 @@ app.put("/server/collections/:collectionId", async (c) => {
           collectorBonusMap.set(key, Number(rate.bonus_points || 0));
         }
 
-        const collectorBonusPoints = calculateCollectorBonusPointsForCollection(updatedCollection, collectorBonusMap);
+        const calculatedCollectorBonusPoints = calculateCollectorBonusPointsForCollection(updatedCollection, collectorBonusMap);
+        const collectorBonusPoints = Math.max(currentCollectorBonusPoints, Number(calculatedCollectorBonusPoints || 0));
         
         // Estimate distance (if not available, use a default based on location)
         let estimatedDistanceKm = updatedCollection.distance_km || 10; // Default 10km if no distance
@@ -2105,8 +2109,8 @@ app.put("/server/collections/:collectionId", async (c) => {
         );
         
         // Store calculated values
-        updatedCollection.collectorPaymentAmount = collectorFreight;
-        updatedCollection.collectorBonusPoints = collectorBonusPoints;
+        updatedCollection.collectorPaymentAmount = Number(collectorFreight || 0);
+        updatedCollection.collectorBonusPoints = Number(collectorBonusPoints || 0);
         
         console.log(`[Collection Complete] Calculated compensation: ${collectorFreight} HNL, ${collectorBonusPoints} pts`);
       }
@@ -2155,12 +2159,14 @@ app.put("/server/collections/:collectionId", async (c) => {
       updatedCollection.generatorPointsAwarded = generatorCompensation.pointsAwarded;
       
       // Update collector points if collection was completed by a collector
-      if (updatedCollection.collectorId && updatedCollection.collectorBonusPoints > 0) {
+      const collectorPointsToAward = Math.max(0, Number(updatedCollection.collectorBonusPoints || 0));
+
+      if (updatedCollection.collectorId && collectorPointsToAward > 0) {
         const collectorProfile = await kv.get(`user:${updatedCollection.collectorId}`);
         
         if (collectorProfile) {
           // Add collector bonus points
-          collectorProfile.points = (collectorProfile.points || 0) + updatedCollection.collectorBonusPoints;
+          collectorProfile.points = Number(collectorProfile.points || 0) + collectorPointsToAward;
           
           // Update collector level based on points
           if (collectorProfile.points >= 1000) {
@@ -2196,7 +2202,8 @@ app.put("/server/collections/:collectionId", async (c) => {
           
           await kv.set(`stats:${updatedCollection.collectorId}`, collectorStats);
           
-          console.log(`[Collection Complete] Collector ${updatedCollection.collectorId} awarded ${updatedCollection.collectorBonusPoints} points`);
+          updatedCollection.collectorPointsAwardedAt = new Date().toISOString();
+          console.log(`[Collection Complete] Collector ${updatedCollection.collectorId} awarded ${collectorPointsToAward} points`);
         }
       }
       

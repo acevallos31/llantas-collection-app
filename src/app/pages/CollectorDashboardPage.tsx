@@ -83,7 +83,7 @@ const pointAcceptsTireType = (point: CollectionPoint, tireType: string) => {
 
 export default function CollectorDashboardPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -626,6 +626,8 @@ export default function CollectorDashboardPage() {
         destinationPointId: selectedPoint.id,
         collectorPaymentPreference: collection.collectorPaymentPreference || 'points',
       });
+
+      await refreshUser();
 
       const arrivedAt = arrival?.inventory?.arrivedAt || new Date().toISOString();
       downloadDeliveryReceipt(collection, selectedPoint, arrivedAt, arrival?.inventory?.id);

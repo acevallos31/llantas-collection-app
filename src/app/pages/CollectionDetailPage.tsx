@@ -122,32 +122,32 @@ export default function CollectionDetailPage() {
                 <p className="text-sm text-gray-500">Estado actual</p>
                 <Badge className="mt-1 bg-green-600">{stageLabels[trace?.currentStage || 'registrada'] || trace?.currentStage || 'Registrada'}</Badge>
               </div>
-              <div className="text-right">
-                <p className="text-sm text-gray-500">Puntos generador</p>
-                <p className="font-bold text-green-600">+{collection.points}</p>
+              <div className="text-right space-y-1">
+                <div>
+                  <p className="text-sm text-gray-500">Puntos generador</p>
+                  <p className="font-bold text-green-600">+{Number(collection.points || 0)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Puntos recolector</p>
+                  <p className="font-bold text-blue-600">+{Number(collection.collectorBonusPoints || 0)}</p>
+                </div>
               </div>
             </div>
 
             {/* Compensación del recolector */}
-            {(collection.collectorPaymentAmount || collection.collectorBonusPoints) ? (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
-                <p className="text-xs font-semibold text-emerald-900 mb-2">💰 Compensación del Recolector</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {collection.collectorPaymentAmount && collection.collectorPaymentAmount > 0 && (
-                    <div>
-                      <p className="text-xs text-gray-600">Efectivo</p>
-                      <p className="font-bold text-emerald-600">{collection.collectorPaymentAmount.toFixed(2)} Lps</p>
-                    </div>
-                  )}
-                  {collection.collectorBonusPoints && collection.collectorBonusPoints > 0 && (
-                    <div>
-                      <p className="text-xs text-gray-600">Puntos Bonus</p>
-                      <p className="font-bold text-blue-600">+{collection.collectorBonusPoints} pts</p>
-                    </div>
-                  )}
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+              <p className="text-xs font-semibold text-emerald-900 mb-2">Compensacion del Recolector</p>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-xs text-gray-600">Efectivo</p>
+                  <p className="font-bold text-emerald-600">{Number(collection.collectorPaymentAmount || 0).toFixed(2)} Lps</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-600">Puntos Bonus</p>
+                  <p className="font-bold text-blue-600">+{Number(collection.collectorBonusPoints || 0)} pts</p>
                 </div>
               </div>
-            ) : null}
+            </div>
 
             {/* Pago del generador */}
             {collection.generatorPaymentAmount && collection.generatorPaymentAmount > 0 && (
