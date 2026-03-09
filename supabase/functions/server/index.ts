@@ -140,8 +140,12 @@ const withPointStatus = (point: any) => {
 };
 
 const findCollectionById = async (collectionId: string) => {
-  const collections = await kv.getByPrefix('collection:');
-  return collections.find((item: any) => item.id === collectionId) || null;
+  const collectionsData = await kv.getByPrefix('collection:');
+  const found = collectionsData.find((item: any) => {
+    const collection = item.value || item;
+    return collection.id === collectionId;
+  });
+  return found ? (found.value || found) : null;
 };
 
 const findCollectionKeyById = async (collectionId: string) => {
