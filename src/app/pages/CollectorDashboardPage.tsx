@@ -481,6 +481,8 @@ export default function CollectorDashboardPage() {
       toast.success(
         status === 'completed'
           ? 'Recolección completada'
+          : status === 'arrived'
+            ? 'Recolección marcada como recogida'
           : status === 'available'
             ? 'Recolección liberada a disponibles'
             : status === 'pending'
@@ -496,41 +498,47 @@ export default function CollectorDashboardPage() {
     }
   };
 
-  const findNearestAvailablePoint = (collection: Collection, points: CollectionPoint[]) => {
-    const collectionCoords = collection.coordinates;
-    if (!collectionCoords || !Number.isFinite(Number(collectionCoords.lat)) || !Number.isFinite(Number(collectionCoords.lng))) {
-      return null;
+  const getOriginForDelivery = (collection: Collection) => {
+    const coords = collection.coordinates;
+    if (coords && Number.isFinite(Number(coords.lat)) && Number.isFinite(Number(coords.lng))) {
+      return { lat: Number(coords.lat), lng: Number(coords.lng) };
     }
+    if (collectorLocation) {
+      return collectorLocation;
+    }
+    return { lat: 15.5042, lng: -88.0250 };
+  };
 
+  const getDeliveryCandidates = (collection: Collection, points: CollectionPoint[]) => {
     const requiredTires = Number(collection.tireCount || 0);
-    const candidates = points.filter((point) => {
+    const origin = getOriginForDelivery(collection);
+
+    const withDistance = (list: CollectionPoint[]) => list
+      .filter((point) => point.coordinates && Number.isFinite(Number(point.coordinates.lat)) && Number.isFinite(Number(point.coordinates.lng)))
+      .map((point) => ({
+        point,
+        distanceKm: haversineKm(origin, {
+          lat: Number(point.coordinates.lat),
+          lng: Number(point.coordinates.lng),
+        }),
+      }))
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const strict = withDistance(points.filter((point) => {
       const availableCapacity = Number(point.capacity || 0) - Number(point.currentLoad || 0);
       return availableCapacity >= requiredTires && pointAcceptsTireType(point, collection.tireType || '');
-    });
+    }));
 
-    if (candidates.length === 0) return null;
+    if (strict.length > 0) return strict;
 
-    let bestPoint: CollectionPoint | null = null;
-    let bestDistance = Number.POSITIVE_INFINITY;
+    const byCapacity = withDistance(points.filter((point) => {
+      const availableCapacity = Number(point.capacity || 0) - Number(point.currentLoad || 0);
+      return availableCapacity >= requiredTires;
+    }));
 
-    for (const point of candidates) {
-      if (!point.coordinates || !Number.isFinite(Number(point.coordinates.lat)) || !Number.isFinite(Number(point.coordinates.lng))) {
-        continue;
-      }
+    if (byCapacity.length > 0) return byCapacity;
 
-      const distance = haversineKm(
-        { lat: Number(collectionCoords.lat), lng: Number(collectionCoords.lng) },
-        { lat: Number(point.coordinates.lat), lng: Number(point.coordinates.lng) },
-      );
-
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestPoint = point;
-      }
-    }
-
-    if (!bestPoint) return null;
-    return { point: bestPoint, distanceKm: bestDistance };
+    return withDistance(points);
   };
 
   const downloadDeliveryReceipt = (
@@ -579,30 +587,48 @@ export default function CollectorDashboardPage() {
       setUpdatingId(collection.id);
 
       const points = await pointsAPI.getAll();
-      const nearest = findNearestAvailablePoint(collection, points || []);
+      const candidates = getDeliveryCandidates(collection, points || []);
 
-      if (!nearest) {
+      if (candidates.length === 0) {
         toast.error('No hay centro de acopio cercano con capacidad disponible para esta entrega');
         return;
       }
 
-      const arrival = await pointsAPI.registerArrival(nearest.point.id, {
-        collectionId: collection.id,
-        tireCount: collection.tireCount,
-        tireType: collection.tireType,
-        notes: 'Entrega completada por recolector desde ruta',
-      });
+      let selectedPoint: CollectionPoint | null = null;
+      let arrival: any = null;
+      let lastErrorMessage = '';
+
+      for (const candidate of candidates) {
+        try {
+          const result = await pointsAPI.registerArrival(candidate.point.id, {
+            collectionId: collection.id,
+            tireCount: collection.tireCount,
+            tireType: collection.tireType,
+            notes: 'Entrega completada por recolector desde ruta',
+          });
+          selectedPoint = candidate.point;
+          arrival = result;
+          break;
+        } catch (error: any) {
+          lastErrorMessage = String(error?.message || 'No se pudo registrar la llegada en el centro');
+        }
+      }
+
+      if (!selectedPoint || !arrival) {
+        toast.error(lastErrorMessage || 'No se pudo entregar en centros de acopio disponibles');
+        return;
+      }
 
       await collectionsAPI.update(collection.id, {
         status: 'completed',
-        destinationPointId: nearest.point.id,
+        destinationPointId: selectedPoint.id,
         collectorPaymentPreference: collection.collectorPaymentPreference || 'points',
       });
 
       const arrivedAt = arrival?.inventory?.arrivedAt || new Date().toISOString();
-      downloadDeliveryReceipt(collection, nearest.point, arrivedAt, arrival?.inventory?.id);
+      downloadDeliveryReceipt(collection, selectedPoint, arrivedAt, arrival?.inventory?.id);
 
-      toast.success(`Entrega completada en ${nearest.point.name}. Comprobante generado.`);
+      toast.success(`Entrega completada en ${selectedPoint.name}. Comprobante generado.`);
       await loadCollections();
       await loadRouteSuggestions();
     } catch (error: any) {
@@ -1045,7 +1071,7 @@ export default function CollectorDashboardPage() {
                     : normalizedStatus === 'pending'
                       ? 'Pendiente'
                       : normalizedStatus === 'arrived'
-                        ? 'Entregada en centro'
+                        ? 'Recogido'
                         : 'En proceso'}
                 </Badge>
               </div>
@@ -1116,14 +1142,26 @@ export default function CollectorDashboardPage() {
                 </div>
 
                 {(normalizedStatus === 'in-progress' || normalizedStatus === 'arrived') && isAssignedToMe && (
-                  <Button
-                    className="w-full bg-green-600 hover:bg-green-700 text-sm"
-                    onClick={() => void completeDelivery(collection)}
-                    disabled={updatingId === collection.id}
-                  >
-                    {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
-                    Entrega completada
-                  </Button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {normalizedStatus === 'in-progress' && (
+                      <Button
+                        className="bg-blue-600 hover:bg-blue-700 text-sm"
+                        onClick={() => void updateStatus(collection.id, 'arrived')}
+                        disabled={updatingId === collection.id}
+                      >
+                        {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                        Marcar recogido
+                      </Button>
+                    )}
+                    <Button
+                      className="bg-green-600 hover:bg-green-700 text-sm"
+                      onClick={() => void completeDelivery(collection)}
+                      disabled={updatingId === collection.id || normalizedStatus !== 'arrived'}
+                    >
+                      {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                      Entregar al centro
+                    </Button>
+                  </div>
                 )}
               </div>
                   </>

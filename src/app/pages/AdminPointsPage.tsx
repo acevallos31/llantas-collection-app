@@ -9,7 +9,7 @@ import { Input } from '../components/ui/input.tsx';
 import { Label } from '../components/ui/label.tsx';
 import { Textarea } from '../components/ui/textarea.tsx';
 import { Badge } from '../components/ui/badge.tsx';
-import { ChevronLeft, Loader2, Plus, Trash2, Save, PackageSearch, ClipboardPlus } from 'lucide-react';
+import { ChevronLeft, Loader2, Plus, Trash2, Save, PackageSearch, ClipboardPlus, Pencil, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 type ArrivalCandidate = {
@@ -48,6 +48,8 @@ export default function AdminPointsPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
   const [selectedPointId, setSelectedPointId] = useState<string>('');
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const [arrivalSubmitting, setArrivalSubmitting] = useState(false);
@@ -69,6 +71,16 @@ export default function AdminPointsPage() {
     tireType: '',
     weightKg: '',
     notes: '',
+  });
+
+  const [editForm, setEditForm] = useState({
+    name: '',
+    address: '',
+    lat: '',
+    lng: '',
+    capacity: '',
+    hours: '',
+    phone: '',
   });
 
   const isAdmin = user?.type === 'admin';
@@ -209,6 +221,57 @@ export default function AdminPointsPage() {
     }
   };
 
+  const startEdit = (point: CollectionPoint) => {
+    setEditingId(point.id);
+    setEditForm({
+      name: point.name || '',
+      address: point.address || '',
+      lat: String(point.coordinates?.lat ?? ''),
+      lng: String(point.coordinates?.lng ?? ''),
+      capacity: String(point.capacity ?? 0),
+      hours: point.hours || '',
+      phone: point.phone || '',
+    });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditSubmitting(false);
+  };
+
+  const saveEdit = async (pointId: string) => {
+    if (!editForm.name || !editForm.address) {
+      toast.error('Nombre y dirección son obligatorios');
+      return;
+    }
+
+    try {
+      setEditSubmitting(true);
+      await pointsAPI.update(pointId, {
+        name: editForm.name,
+        address: editForm.address,
+        coordinates: {
+          lat: Number(editForm.lat),
+          lng: Number(editForm.lng),
+        },
+        capacity: Number(editForm.capacity),
+        hours: editForm.hours,
+        phone: editForm.phone,
+      });
+
+      toast.success('Centro actualizado');
+      setEditingId(null);
+      await loadPoints();
+      if (selectedPointId === pointId) {
+        await loadInventory(pointId);
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'No se pudo actualizar el centro');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
+
   if (!isAdmin) {
     return (
       <div className="min-h-screen bg-gray-50 p-4">
@@ -299,20 +362,67 @@ export default function AdminPointsPage() {
             <div className="space-y-2">
               {points.map((point) => (
                 <div key={point.id} className="border rounded-lg p-3 flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium">{point.name}</p>
-                    <p className="text-sm text-gray-600">{point.address}</p>
-                    <div className="flex gap-2 mt-1">
-                      <Badge variant="outline">Cap: {point.capacity}</Badge>
-                      <Badge variant="outline">Carga: {point.currentLoad}</Badge>
-                    </div>
+                  <div className="flex-1">
+                    {editingId === point.id ? (
+                      <div className="space-y-2">
+                        <Input value={editForm.name} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, name: e.target.value })} placeholder="Nombre" />
+                        <Textarea value={editForm.address} onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setEditForm({ ...editForm, address: e.target.value })} rows={2} placeholder="Dirección" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input value={editForm.lat} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, lat: e.target.value })} placeholder="Latitud" />
+                          <Input value={editForm.lng} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, lng: e.target.value })} placeholder="Longitud" />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input type="number" value={editForm.capacity} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, capacity: e.target.value })} placeholder="Capacidad" />
+                          <Input value={editForm.phone} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, phone: e.target.value })} placeholder="Telefono" />
+                        </div>
+                        <Input value={editForm.hours} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, hours: e.target.value })} placeholder="Horario" />
+                      </div>
+                    ) : (
+                      <>
+                        <p className="font-medium">{point.name}</p>
+                        <p className="text-sm text-gray-600">{point.address}</p>
+                        <div className="flex gap-2 mt-1">
+                          <Badge variant="outline">Cap: {point.capacity}</Badge>
+                          <Badge variant="outline">Carga: {point.currentLoad}</Badge>
+                        </div>
+                      </>
+                    )}
                   </div>
 
                   <div className="flex gap-2">
+                    {editingId === point.id ? (
+                      <>
+                        <Button
+                          size="sm"
+                          onClick={() => void saveEdit(point.id)}
+                          disabled={editSubmitting}
+                        >
+                          {editSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4 mr-1" />} Guardar
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={cancelEdit}
+                          disabled={editSubmitting}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => startEdit(point)}
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </Button>
+                    )}
+
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => void loadInventory(point.id)}
+                      disabled={editingId === point.id}
                     >
                       <PackageSearch className="w-4 h-4 mr-1" /> Inventario
                     </Button>
@@ -320,7 +430,7 @@ export default function AdminPointsPage() {
                       variant="destructive"
                       size="sm"
                       onClick={() => handleDelete(point.id)}
-                      disabled={deletingId === point.id}
+                      disabled={deletingId === point.id || editingId === point.id}
                     >
                       {deletingId === point.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                     </Button>

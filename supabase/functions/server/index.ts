@@ -1954,7 +1954,7 @@ app.put("/server/collections/:collectionId", async (c) => {
       }
     }
 
-    if (isCollector && updates.status && !['available', 'pending', 'in-progress', 'completed', 'cancelled'].includes(updates.status)) {
+    if (isCollector && updates.status && !['available', 'pending', 'in-progress', 'arrived', 'completed', 'cancelled'].includes(updates.status)) {
       return c.json({ error: 'Invalid status for collector update' }, 400);
     }
 
@@ -1962,7 +1962,7 @@ app.put("/server/collections/:collectionId", async (c) => {
       const currentCollectorId = currentCollection.collectorId || null;
       const isAssignedToRequester = currentCollectorId === user.id;
 
-      if (updates.status === 'in-progress' || updates.status === 'completed') {
+      if (updates.status === 'in-progress' || updates.status === 'arrived' || updates.status === 'completed') {
         if (!isAssignedToRequester) {
           return c.json({ error: 'This collection is assigned to another collector' }, 409);
         }
@@ -2003,6 +2003,8 @@ app.put("/server/collections/:collectionId", async (c) => {
     if (updates.status && updates.status !== currentCollection.status) {
       const nextStage = updates.status === 'completed'
         ? 'destino-final'
+        : updates.status === 'arrived'
+          ? 'acopiada'
         : updates.status === 'cancelled'
           ? 'cancelada'
           : 'en-proceso';
