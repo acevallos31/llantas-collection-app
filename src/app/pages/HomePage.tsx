@@ -12,6 +12,12 @@ import { toast } from 'sonner';
 
 const SPS_DEFAULT_COORDINATES = { lat: 15.5042, lng: -88.0250 };
 
+const isLocalAnalyticsDisabled = () => {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return host === 'localhost' || host === '127.0.0.1';
+};
+
 const isLikelyLegacyCoordinate = (coordinates?: { lat: number; lng: number }) => {
   if (!coordinates) return true;
   const { lat, lng } = coordinates;
@@ -114,6 +120,11 @@ export default function HomePage() {
   };
 
   const startScreenShare = async (sessionId: string) => {
+    if (isLocalAnalyticsDisabled()) {
+      toast.info('Asistencia remota no disponible en localhost. Usa el entorno desplegado para analytics.');
+      return;
+    }
+
     if (isScreenShareActive) return;
 
     try {
@@ -204,6 +215,11 @@ export default function HomePage() {
   };
 
   const requestRemoteAssistance = async () => {
+    if (isLocalAnalyticsDisabled()) {
+      toast.info('Asistencia remota deshabilitada en localhost.');
+      return;
+    }
+
     const sessionId = sessionStorage.getItem(ANALYTICS_SESSION_ID_KEY);
     if (!sessionId) {
       toast.error('No se encontro la sesion activa');
@@ -254,6 +270,7 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!isGenerator) return;
+    if (isLocalAnalyticsDisabled()) return;
 
     const sessionId = sessionStorage.getItem(ANALYTICS_SESSION_ID_KEY);
     if (!sessionId) return;
