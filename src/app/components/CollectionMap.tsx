@@ -90,8 +90,6 @@ export default function CollectionMap({
 
     layerGroup.clearLayers();
 
-    console.log('CollectionMap rendering with collectorLocation:', collectorLocation);
-
     points.forEach((point) => {
       const loadPercentage = (point.currentLoad / point.capacity) * 100;
       const markerColor = loadPercentage >= 90 ? '#dc2626' : loadPercentage >= 70 ? '#f59e0b' : '#16a34a';

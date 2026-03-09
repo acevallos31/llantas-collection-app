@@ -1318,6 +1318,11 @@ app.get('/server/analytics/session/screen-share-request/:sessionId', async (c) =
       return c.json({ error: 'Unauthorized' }, 401);
     }
 
+    const sessionMeta = await kv.get(getSessionMetaKey(sessionId));
+    if (!sessionMeta) {
+      return c.json({ request: null });
+    }
+
     const allowed = await canAccessScreenShareSession(resolvedUser, sessionId);
     if (!allowed) {
       return c.json({ error: 'Forbidden' }, 403);

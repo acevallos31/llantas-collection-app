@@ -275,7 +275,7 @@ export default function HomePage() {
     const sessionId = sessionStorage.getItem(ANALYTICS_SESSION_ID_KEY);
     if (!sessionId) return;
 
-    requestPollRef.current = window.setInterval(async () => {
+    const pollId = window.setInterval(async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/analytics/session/screen-share-request/${sessionId}`, {
           method: 'GET',
@@ -284,8 +284,8 @@ export default function HomePage() {
 
         // Stop polling if forbidden (endpoint not available or user not authorized)
         if (response.status === 403) {
-          if (requestPollRef.current) {
-            window.clearInterval(requestPollRef.current);
+          window.clearInterval(pollId);
+          if (requestPollRef.current === pollId) {
             requestPollRef.current = null;
           }
           return;
@@ -321,10 +321,11 @@ export default function HomePage() {
         console.error('Generator screen-share poll error:', error);
       }
     }, 3500);
+    requestPollRef.current = pollId;
 
     return () => {
-      if (requestPollRef.current) {
-        window.clearInterval(requestPollRef.current);
+      window.clearInterval(pollId);
+      if (requestPollRef.current === pollId) {
         requestPollRef.current = null;
       }
     };
