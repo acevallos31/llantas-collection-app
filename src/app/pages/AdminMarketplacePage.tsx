@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext.js';
-import { marketplaceAPI } from '../services/api.js';
+import { marketplaceAPI, paymentsAPI } from '../services/api.js';
 import type { MarketplaceOrder, MarketplaceProduct } from '../mockData.js';
 import { Card } from '../components/ui/card.js';
 import { Button } from '../components/ui/button.js';
@@ -39,6 +39,9 @@ const defaultForm = {
   photoUrl: '',
 };
 
+const defaultAllowedTireTypes = ['Automóvil', 'Motocicleta', 'Camión', 'Bicicleta', 'Autobús'];
+const defaultAllowedSaleConditions = ['excelente', 'buena'];
+
 export default function AdminMarketplacePage() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -51,21 +54,47 @@ export default function AdminMarketplacePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(defaultForm);
   const [imagePreview, setImagePreview] = useState<string>('');
+  const [allowedTireTypes, setAllowedTireTypes] = useState<string[]>(defaultAllowedTireTypes);
+  const [allowedSaleConditions, setAllowedSaleConditions] = useState<string[]>(defaultAllowedSaleConditions);
+
+  useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      tireType: allowedTireTypes.includes(prev.tireType) ? prev.tireType : (allowedTireTypes[0] || 'Automóvil'),
+      tireCondition: allowedSaleConditions.includes(prev.tireCondition) ? prev.tireCondition : (allowedSaleConditions[0] || 'buena'),
+    }));
+  }, [allowedTireTypes, allowedSaleConditions]);
 
   const isAdmin = user?.type === 'admin';
 
   const loadData = async () => {
     try {
       setLoading(true);
-      const [productsData, ordersData, options] = await Promise.all([
+      const [productsData, ordersData, options, collectorRates] = await Promise.all([
         marketplaceAPI.adminGetProducts(),
         marketplaceAPI.adminGetOrders(),
         marketplaceAPI.getFulfillmentOptions(),
+        paymentsAPI.getCollectorRates(),
       ]);
       setProducts(productsData || []);
       setOrders(ordersData || []);
       setCollectors(options.collectors || []);
       setPoints(options.points || []);
+
+      const activeRates = Array.isArray(collectorRates)
+        ? collectorRates.filter((rate) => rate?.isActive !== false)
+        : [];
+
+      const typesFromDb = [...new Set(activeRates.map((rate: any) => String(rate?.tireType || '').trim()).filter(Boolean))];
+      const conditionsFromDb = [...new Set(activeRates.map((rate: any) => String(rate?.tireCondition || '').trim().toLowerCase()).filter(Boolean))]
+        .filter((condition) => ['excelente', 'buena'].includes(condition));
+
+      if (typesFromDb.length > 0) {
+        setAllowedTireTypes(typesFromDb);
+      }
+      if (conditionsFromDb.length > 0) {
+        setAllowedSaleConditions(conditionsFromDb);
+      }
     } catch (error: any) {
       toast.error(error.message || 'No se pudo cargar marketplace admin');
     } finally {
@@ -93,6 +122,12 @@ export default function AdminMarketplacePage() {
       photoUrl: product.photoUrl || '',
     });
     setImagePreview(product.photoUrl || '');
+  };
+
+  const resolvePointName = (product: MarketplaceProduct) => {
+    if (product.pointName) return product.pointName;
+    if (!product.pointId) return 'Sin centro asignado';
+    return points.find((point) => point.id === product.pointId)?.name || 'Centro no encontrado';
   };
 
   const clearForm = () => {
@@ -254,11 +289,27 @@ export default function AdminMarketplacePage() {
                   </div>
                   <div className="space-y-1">
                     <Label>Tipo de llanta</Label>
-                    <Input value={form.tireType} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, tireType: e.target.value })} />
+                    <select
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      value={form.tireType}
+                      onChange={(e) => setForm({ ...form, tireType: e.target.value })}
+                    >
+                      {allowedTireTypes.map((type) => (
+                        <option key={type} value={type}>{type}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="space-y-1">
                     <Label>Condición</Label>
-                    <Input value={form.tireCondition} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, tireCondition: e.target.value })} />
+                    <select
+                      className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      value={form.tireCondition}
+                      onChange={(e) => setForm({ ...form, tireCondition: e.target.value })}
+                    >
+                      {allowedSaleConditions.map((condition) => (
+                        <option key={condition} value={condition}>{condition}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="space-y-1">
                     <Label>Precio (L)</Label>
@@ -401,13 +452,25 @@ export default function AdminMarketplacePage() {
                 {products.map((item) => (
                   <Card key={item.id} className="p-4">
                     <div className="flex items-start justify-between gap-2">
-                      <div>
+                      <div className="flex items-start gap-3">
+                        <div className="w-16 h-16 rounded-md border bg-gray-100 overflow-hidden shrink-0">
+                          {item.photoUrl ? (
+                            <img src={item.photoUrl} alt={item.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-xs text-gray-500">Sin foto</div>
+                          )}
+                        </div>
+                        <div>
                         <p className="font-medium">{item.name}</p>
                         <p className="text-sm text-gray-600">{item.tireType} • {item.tireCondition || 'N/A'} • L {Number(item.price || 0).toFixed(2)}</p>
+                        {(item.sellerType === 'point' || item.sellerType === 'mixed') && (
+                          <p className="text-xs text-blue-700 mt-1">Centro: {resolvePointName(item)}</p>
+                        )}
                         <div className="mt-2 flex gap-2">
                           <Badge variant="outline">Stock {item.stock}</Badge>
                           <Badge variant="outline">{item.sellerType}</Badge>
                           <Badge variant="outline">{item.active ? 'activo' : 'inactivo'}</Badge>
+                        </div>
                         </div>
                       </div>
                       <div className="flex gap-2">
@@ -427,11 +490,27 @@ export default function AdminMarketplacePage() {
                           </div>
                           <div className="space-y-1">
                             <Label>Tipo de llanta</Label>
-                            <Input value={form.tireType} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, tireType: e.target.value })} />
+                            <select
+                              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                              value={form.tireType}
+                              onChange={(e) => setForm({ ...form, tireType: e.target.value })}
+                            >
+                              {allowedTireTypes.map((type) => (
+                                <option key={type} value={type}>{type}</option>
+                              ))}
+                            </select>
                           </div>
                           <div className="space-y-1">
                             <Label>Condición</Label>
-                            <Input value={form.tireCondition} onChange={(e: ChangeEvent<HTMLInputElement>) => setForm({ ...form, tireCondition: e.target.value })} />
+                            <select
+                              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                              value={form.tireCondition}
+                              onChange={(e) => setForm({ ...form, tireCondition: e.target.value })}
+                            >
+                              {allowedSaleConditions.map((condition) => (
+                                <option key={condition} value={condition}>{condition}</option>
+                              ))}
+                            </select>
                           </div>
                           <div className="space-y-1">
                             <Label>Precio (L)</Label>
@@ -455,9 +534,88 @@ export default function AdminMarketplacePage() {
                           </div>
                         </div>
 
+                        {(form.sellerType === 'collector' || form.sellerType === 'mixed') && (
+                          <div className="space-y-1">
+                            <Label>Recolector asignado</Label>
+                            <select
+                              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                              value={form.collectorId}
+                              onChange={(e) => setForm({ ...form, collectorId: e.target.value })}
+                            >
+                              <option value="">Sin asignar</option>
+                              {collectors.map((collector) => (
+                                <option key={collector.id} value={collector.id}>{collector.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
+                        {(form.sellerType === 'point' || form.sellerType === 'mixed') && (
+                          <div className="space-y-1">
+                            <Label>Centro asignado</Label>
+                            <select
+                              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                              value={form.pointId}
+                              onChange={(e) => setForm({ ...form, pointId: e.target.value })}
+                            >
+                              <option value="">Sin asignar</option>
+                              {points.map((point) => (
+                                <option key={point.id} value={point.id}>{point.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+
                         <div className="space-y-1">
                           <Label>Descripción</Label>
                           <Textarea value={form.description} onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setForm({ ...form, description: e.target.value })} rows={2} />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Foto del producto</Label>
+                          <div className="flex items-center gap-2">
+                            <label htmlFor={`photo-upload-inline-${item.id}`} className="cursor-pointer">
+                              <div className="flex items-center gap-2 px-4 py-2 border border-input rounded-md bg-background hover:bg-gray-50 transition-colors">
+                                <Upload className="w-4 h-4" />
+                                <span className="text-sm">Subir imagen</span>
+                              </div>
+                              <input
+                                id={`photo-upload-inline-${item.id}`}
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={handleImageChange}
+                              />
+                            </label>
+                            <label htmlFor={`photo-camera-inline-${item.id}`} className="cursor-pointer">
+                              <div className="flex items-center gap-2 px-4 py-2 border border-input rounded-md bg-background hover:bg-gray-50 transition-colors">
+                                <Camera className="w-4 h-4" />
+                                <span className="text-sm">Tomar foto</span>
+                              </div>
+                              <input
+                                id={`photo-camera-inline-${item.id}`}
+                                type="file"
+                                accept="image/*"
+                                capture="environment"
+                                className="hidden"
+                                onChange={handleImageChange}
+                              />
+                            </label>
+                          </div>
+                          {imagePreview && (
+                            <div className="relative w-24 h-24 mt-2">
+                              <img src={imagePreview} alt="Preview" className="w-full h-full object-cover rounded-md border" />
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="destructive"
+                                className="absolute -top-2 -right-2 h-6 w-6 p-0 rounded-full"
+                                onClick={handleRemoveImage}
+                              >
+                                ×
+                              </Button>
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-2">

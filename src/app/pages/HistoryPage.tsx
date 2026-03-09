@@ -55,7 +55,7 @@ type CollectionTrace = {
 export default function HistoryPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [filter, setFilter] = useState<'all' | 'completed' | 'pending' | 'in-progress' | 'cancelled'>('all');
+  const [filter, setFilter] = useState<'all' | 'completed' | 'pending' | 'in-progress' | 'cancelled' | 'overdue'>('all');
   const [collections, setCollections] = useState<Collection[]>([]);
   const [stats, setStats] = useState({
     totalCollections: 0,
@@ -118,15 +118,34 @@ export default function HistoryPage() {
 
   const isCollector = user?.type === 'collector';
 
+  const normalizeStatus = (status: string | undefined) => String(status || '').trim().toLowerCase();
+
+  const isCollectionOverdue = (collection: Collection) => {
+    if (!collection.scheduledDate) return false;
+    const scheduledTime = new Date(collection.scheduledDate).getTime();
+    const now = Date.now();
+    const hourInMs = 60 * 60 * 1000;
+    const status = String(collection.status || '').toLowerCase();
+    return now > scheduledTime + (2 * hourInMs)
+      && status !== 'arrived'
+      && status !== 'completed'
+      && status !== 'cancelled';
+  };
+
   // For collectors, history should only show collections assigned to them.
   const scopedCollections = isCollector
     ? collections.filter((collection) => collection.collectorId === user?.id)
     : collections;
 
   const filteredCollections = scopedCollections
-    .filter((collection) => (filter === 'all' ? true : collection.status === filter))
+    .filter((collection) => {
+      const normalizedStatus = normalizeStatus(collection.status);
+      if (filter === 'all') return true;
+      if (filter === 'overdue') return isCollectionOverdue(collection);
+      return normalizedStatus === filter;
+    })
     .sort((a, b) => {
-      if (filter === 'pending') {
+      if (filter === 'pending' || filter === 'overdue') {
         const aDate = a.scheduledDate ? new Date(a.scheduledDate).getTime() : Number.MAX_SAFE_INTEGER;
         const bDate = b.scheduledDate ? new Date(b.scheduledDate).getTime() : Number.MAX_SAFE_INTEGER;
         return aDate - bDate;
@@ -349,23 +368,28 @@ export default function HistoryPage() {
         <div className="grid grid-cols-3 gap-3">
           <Card className="bg-white/10 backdrop-blur border-white/20 p-3 text-center">
             <div className="text-2xl font-bold">
-              {scopedCollections.filter(c => c.status === 'completed').length}
+              {scopedCollections.filter(c => normalizeStatus(c.status) === 'completed').length}
             </div>
             <div className="text-xs text-green-100">Completadas</div>
           </Card>
           <Card className="bg-white/10 backdrop-blur border-white/20 p-3 text-center">
             <div className="text-2xl font-bold">
-              {scopedCollections.filter(c => c.status === 'in-progress').length}
+              {scopedCollections.filter(c => normalizeStatus(c.status) === 'in-progress').length}
             </div>
             <div className="text-xs text-green-100">En Proceso</div>
           </Card>
           <Card className="bg-white/10 backdrop-blur border-white/20 p-3 text-center">
             <div className="text-2xl font-bold">
-              {scopedCollections.filter(c => c.status === 'pending').length}
+              {scopedCollections.filter(c => normalizeStatus(c.status) === 'pending').length}
             </div>
             <div className="text-xs text-green-100">Pendientes</div>
           </Card>
         </div>
+        {isCollector && (
+          <p className="text-xs text-amber-100 mt-2">
+            Atrasadas: {scopedCollections.filter((c) => isCollectionOverdue(c)).length}
+          </p>
+        )}
       </div>
 
       <div className="p-4">
@@ -378,11 +402,12 @@ export default function HistoryPage() {
 
         {/* Filter Tabs */}
         <Tabs defaultValue="all" className="mb-6" onValueChange={(v) => setFilter(v as any)}>
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="all" className="text-xs">Todas</TabsTrigger>
             <TabsTrigger value="completed" className="text-xs">Completadas</TabsTrigger>
             <TabsTrigger value="in-progress" className="text-xs">En Proceso</TabsTrigger>
             <TabsTrigger value="pending" className="text-xs">Pendientes</TabsTrigger>
+            <TabsTrigger value="overdue" className="text-xs">Atrasadas</TabsTrigger>
             <TabsTrigger value="cancelled" className="text-xs">Canceladas</TabsTrigger>
           </TabsList>
         </Tabs>
@@ -402,25 +427,32 @@ export default function HistoryPage() {
                   <p className="text-gray-600">No hay recolecciones en esta categoría</p>
                 </Card>
               ) : (
-                filteredCollections.map((collection) => (
+                filteredCollections.map((collection) => {
+                  const normalizedStatus = normalizeStatus(collection.status);
+                  return (
                   <Card key={collection.id} className="p-4 hover:shadow-lg transition-shadow cursor-pointer">
                     <div className="flex gap-4">
                       {/* Icon */}
-                      <div className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 ${getStatusColor(collection.status)}`}>
-                        {getStatusIcon(collection.status)}
+                      <div className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 ${getStatusColor(normalizedStatus)}`}>
+                        {getStatusIcon(normalizedStatus)}
                       </div>
 
                       {/* Content */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2 mb-2">
                           <h3 className="font-semibold">{collection.tireType}</h3>
-                          <Badge variant={
-                            collection.status === 'completed' ? 'default' :
-                            collection.status === 'in-progress' ? 'secondary' :
-                            'outline'
-                          }>
-                            {getStatusLabel(collection.status)}
-                          </Badge>
+                          <div className="flex items-center gap-1">
+                            <Badge variant={
+                              normalizedStatus === 'completed' ? 'default' :
+                              normalizedStatus === 'in-progress' ? 'secondary' :
+                              'outline'
+                            }>
+                              {getStatusLabel(normalizedStatus)}
+                            </Badge>
+                            {isCollectionOverdue(collection) && (
+                              <Badge variant="destructive">Atrasada</Badge>
+                            )}
+                          </div>
                         </div>
 
                         <div className="space-y-2 text-sm text-gray-600">
@@ -468,7 +500,7 @@ export default function HistoryPage() {
                     </div>
 
                     {/* Action Buttons */}
-                    {collection.status === 'pending' && (
+                    {normalizedStatus === 'pending' && (
                       <div className="mt-4 pt-4 border-t flex gap-2">
                         <Button
                           variant="outline"
@@ -497,7 +529,7 @@ export default function HistoryPage() {
                       </div>
                     )}
 
-                    {collection.status === 'completed' && (
+                    {normalizedStatus === 'completed' && (
                       <div className="mt-4 pt-4 border-t flex flex-col sm:flex-row gap-2">
                         <Button
                           variant="secondary"
@@ -528,8 +560,9 @@ export default function HistoryPage() {
                         </Button>
                       </div>
                     )}
-                  </Card>
-                ))
+                    </Card>
+                  );
+                })
               )}
             </div>
 

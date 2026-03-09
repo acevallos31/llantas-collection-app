@@ -2269,12 +2269,20 @@ app.post('/server/collector/start-route', async (c) => {
       return c.json({ error: 'Only collectors can start routes' }, 403);
     }
     
-    // Find all pending collections assigned to this collector
+    // Find all pending collections assigned to this collector.
+    // kv.getByPrefix can return either raw values or { key, value } envelopes depending on runtime.
     const allCollections = await kv.getByPrefix('collection:');
-    const pendingCollections = allCollections.filter((item: any) => 
-      item.value?.collectorId === user.id && 
-      item.value?.status === 'pending'
-    );
+    const pendingCollections = allCollections
+      .map((item: any) => {
+        const hasEnvelope = item && typeof item === 'object' && 'value' in item;
+        const key = hasEnvelope ? item.key : `collection:${item?.id}`;
+        const value = hasEnvelope ? item.value : item;
+        return { key, value };
+      })
+      .filter((item: any) =>
+        item?.value?.collectorId === user.id
+        && String(item?.value?.status || '').toLowerCase() === 'pending'
+      );
     
     if (pendingCollections.length === 0) {
       return c.json({ message: 'No pending collections to start', updated: 0 }, 200);

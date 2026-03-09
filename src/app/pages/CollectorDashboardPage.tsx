@@ -17,7 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '../components/ui/alert-dialog.tsx';
-import { ChevronLeft, Loader2, QrCode, Route, CalendarDays, MapPin, Package, Truck, CheckCircle2, PlayCircle, XCircle, Trash2 } from 'lucide-react';
+import { ChevronLeft, Loader2, QrCode, Route, CalendarDays, MapPin, Package, Truck, CheckCircle2, PlayCircle, XCircle, Trash2, Gift } from 'lucide-react';
 import { toast } from 'sonner';
 import { jsPDF } from 'jspdf';
 import { API_BASE_URL, getAuthHeaders, ANALYTICS_SESSION_ID_KEY } from '../services/api.js';
@@ -768,17 +768,37 @@ export default function CollectorDashboardPage() {
     try {
       setUpdatingId('route-batch');
 
-      let taken = 0;
+      let newlyAssigned = 0;
+      let progressed = 0;
+      let alreadyInRoute = 0;
       let conflicts = 0;
       let failed = 0;
+      let hasPendingCollectionsToStart = false;
 
       for (const item of items) {
         try {
           if (item.routeType === 'marketplace') {
-            if (String(item.collectionStatus || '').toLowerCase() === 'available') {
+            const marketplaceStatus = String(item.collectionStatus || '').toLowerCase();
+
+            if (marketplaceStatus === 'available') {
               await marketplaceAPI.collectorTakeOrder(item.collectionId);
+              await marketplaceAPI.collectorUpdateOrderStatus(item.collectionId, 'in-progress');
+              newlyAssigned += 1;
+              progressed += 1;
+              continue;
             }
-            taken += 1;
+
+            if (marketplaceStatus === 'pending') {
+              await marketplaceAPI.collectorUpdateOrderStatus(item.collectionId, 'in-progress');
+              progressed += 1;
+              continue;
+            }
+
+            if (marketplaceStatus === 'in-progress' || marketplaceStatus === 'picked-up') {
+              alreadyInRoute += 1;
+              continue;
+            }
+
             continue;
           }
 
@@ -786,7 +806,8 @@ export default function CollectorDashboardPage() {
             collectorFreight: item.estimatedCompensation.collectorFreight,
             collectorBonusPoints: item.estimatedCompensation.collectorBonusPoints,
           });
-          taken += 1;
+          newlyAssigned += 1;
+          hasPendingCollectionsToStart = true;
         } catch (error: any) {
           const message = String(error?.message || 'No se pudo tomar la parada de ruta');
           if (message.toLowerCase().includes('no longer available') || message.toLowerCase().includes('taken by another')) {
@@ -797,8 +818,24 @@ export default function CollectorDashboardPage() {
         }
       }
 
-      if (taken > 0) {
-        toast.success(`Ruta tomada parcialmente/completa: ${taken} parada${taken > 1 ? 's' : ''} asignada${taken > 1 ? 's' : ''}.`);
+      if (hasPendingCollectionsToStart) {
+        try {
+          const startResult = await collectorAPI.startRoute();
+          if (Number(startResult?.updated || 0) > 0) {
+            progressed += Number(startResult.updated || 0);
+          }
+        } catch {
+          // If auto-start fails, collector can still use the manual button.
+        }
+      }
+
+      if (newlyAssigned > 0 || progressed > 0) {
+        toast.success(
+          `Ruta iniciada: ${newlyAssigned} parada${newlyAssigned === 1 ? '' : 's'} asignada${newlyAssigned === 1 ? '' : 's'} y ${progressed} en proceso.`
+        );
+      }
+      if (alreadyInRoute > 0) {
+        toast.info(`${alreadyInRoute} parada${alreadyInRoute > 1 ? 's' : ''} ya estaba${alreadyInRoute > 1 ? 'n' : ''} en tu ruta.`);
       }
       if (conflicts > 0) {
         toast.info(`${conflicts} parada${conflicts > 1 ? 's' : ''} ya no estaba${conflicts > 1 ? 'n' : ''} disponible${conflicts > 1 ? 's' : ''}.`);
@@ -887,6 +924,25 @@ export default function CollectorDashboardPage() {
       </div>
 
       <div className="px-4 pt-4">
+        <Card className="p-4 border-violet-200 bg-violet-50/70 mb-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="font-semibold text-violet-900 flex items-center gap-2">
+                <Gift className="w-4 h-4" /> Premios del recolector
+              </p>
+              <p className="text-sm text-violet-800">Canjea tus puntos por recompensas disponibles.</p>
+              <p className="text-xs text-violet-700 mt-1">Puntos actuales: {Number(user?.points || 0)}</p>
+            </div>
+            <Button
+              size="sm"
+              className="bg-violet-600 hover:bg-violet-700"
+              onClick={() => navigate('/rewards')}
+            >
+              Ver premios
+            </Button>
+          </div>
+        </Card>
+
         {pendingCount > 0 && (
           <Card className="p-4 bg-gradient-to-r from-amber-500 to-orange-600 text-white mb-4">
             <div className="flex items-center justify-between">
