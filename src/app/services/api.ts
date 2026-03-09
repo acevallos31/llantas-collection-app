@@ -656,6 +656,7 @@ export const marketplaceAPI = {
     collectorId?: string;
     pointId?: string;
     active?: boolean;
+    photoUrl?: string;
   }): Promise<MarketplaceProduct> {
     const response = await fetch(`${API_BASE_URL}/admin/marketplace/products`, {
       method: 'POST',

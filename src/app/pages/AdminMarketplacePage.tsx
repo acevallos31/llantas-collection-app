@@ -10,7 +10,7 @@ import { Label } from '../components/ui/label.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { Badge } from '../components/ui/badge.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
-import { Loader2, Store, Plus, Trash2, Save, Pencil } from 'lucide-react';
+import { Loader2, Store, Plus, Trash2, Save, Pencil, Camera, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
 const defaultForm = {
@@ -24,6 +24,7 @@ const defaultForm = {
   collectorId: '',
   pointId: '',
   active: true,
+  photoUrl: '',
 };
 
 export default function AdminMarketplacePage() {
@@ -37,6 +38,7 @@ export default function AdminMarketplacePage() {
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(defaultForm);
+  const [imagePreview, setImagePreview] = useState<string>('');
 
   const isAdmin = user?.type === 'admin';
 
@@ -81,12 +83,46 @@ export default function AdminMarketplacePage() {
       collectorId: editingProduct.collectorId || '',
       pointId: editingProduct.pointId || '',
       active: editingProduct.active !== false,
+      photoUrl: editingProduct.photoUrl || '',
     });
+    setImagePreview(editingProduct.photoUrl || '');
   }, [editingProduct]);
 
   const clearForm = () => {
     setEditingId(null);
     setForm(defaultForm);
+    setImagePreview('');
+  };
+
+  const handleImageChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validar tipo de archivo
+    if (!file.type.startsWith('image/')) {
+      toast.error('Solo se permiten archivos de imagen');
+      return;
+    }
+
+    // Validar tamaño (máximo 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('La imagen no debe superar 5MB');
+      return;
+    }
+
+    // Convertir a base64
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      setImagePreview(base64String);
+      setForm({ ...form, photoUrl: base64String });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveImage = () => {
+    setImagePreview('');
+    setForm({ ...form, photoUrl: '' });
   };
 
   const handleSave = async () => {
@@ -108,6 +144,7 @@ export default function AdminMarketplacePage() {
         collectorId: form.collectorId || undefined,
         pointId: form.pointId || undefined,
         active: form.active,
+        photoUrl: form.photoUrl || undefined,
       };
 
       if (editingId) {
@@ -257,6 +294,53 @@ export default function AdminMarketplacePage() {
                 <div className="space-y-1">
                   <Label>Descripción</Label>
                   <Textarea value={form.description} onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setForm({ ...form, description: e.target.value })} rows={2} />
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Foto del producto</Label>
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="photo-upload" className="cursor-pointer">
+                      <div className="flex items-center gap-2 px-4 py-2 border border-input rounded-md bg-background hover:bg-gray-50 transition-colors">
+                        <Upload className="w-4 h-4" />
+                        <span className="text-sm">Subir imagen</span>
+                      </div>
+                      <input
+                        id="photo-upload"
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleImageChange}
+                      />
+                    </label>
+                    <label htmlFor="photo-camera" className="cursor-pointer">
+                      <div className="flex items-center gap-2 px-4 py-2 border border-input rounded-md bg-background hover:bg-gray-50 transition-colors">
+                        <Camera className="w-4 h-4" />
+                        <span className="text-sm">Tomar foto</span>
+                      </div>
+                      <input
+                        id="photo-camera"
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={handleImageChange}
+                      />
+                    </label>
+                  </div>
+                  {imagePreview && (
+                    <div className="relative w-32 h-32 mt-2">
+                      <img src={imagePreview} alt="Preview" className="w-full h-full object-cover rounded-md border" />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="destructive"
+                        className="absolute -top-2 -right-2 h-6 w-6 p-0 rounded-full"
+                        onClick={handleRemoveImage}
+                      >
+                        ×
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">

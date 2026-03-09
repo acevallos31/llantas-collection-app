@@ -371,10 +371,18 @@ export default function MarketplacePage() {
                   <span className="font-medium">{selectedProduct.stock}</span>
                 </div>
                 {selectedProduct.pointName && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Centro:</span>
-                    <span className="font-medium">{selectedProduct.pointName}</span>
-                  </div>
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Centro:</span>
+                      <span className="font-medium">{selectedProduct.pointName}</span>
+                    </div>
+                    {selectedProduct.pointAddress && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600">Dirección:</span>
+                        <span className="font-medium text-right">{selectedProduct.pointAddress}</span>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 

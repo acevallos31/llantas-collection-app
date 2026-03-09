@@ -354,6 +354,37 @@ const ensureMarketplaceSeed = async () => {
       updatedAt: now,
     };
     await kv.set(`marketplace:product:${productId}`, payload);
+
+    // Actualizar inventario del centro si el producto está asignado a un centro
+    if (payload.pointId && payload.marketType === 'resale') {
+      const inventoryId = crypto.randomUUID();
+      const inventoryKey = `inventory:${payload.pointId}:${inventoryId}`;
+      const inventoryPayload = {
+        id: inventoryId,
+        pointId: payload.pointId,
+        pointName: payload.pointName,
+        tireType: payload.tireType,
+        tireCondition: payload.tireCondition,
+        tireCount: payload.stock,
+        tireSize: payload.tireSize,
+        notes: `Producto marketplace: ${payload.name}`,
+        marketplace: true,
+        marketplaceProductId: productId,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await kv.set(inventoryKey, inventoryPayload);
+
+      // Actualizar carga del centro
+      const currentPoint = await kv.get(`point:${payload.pointId}`);
+      if (currentPoint) {
+        await kv.set(`point:${payload.pointId}`, {
+          ...currentPoint,
+          currentLoad: Number(currentPoint.currentLoad || 0) + Number(payload.stock || 0),
+          updatedAt: now,
+        });
+      }
+    }
   }
 };
 
@@ -5943,6 +5974,7 @@ app.get('/server/marketplace/products', async (c) => {
         ...item,
         collectorName: item.collectorId ? (userMap.get(item.collectorId)?.name || null) : null,
         pointName: item.pointId ? (pointMap.get(item.pointId)?.name || null) : null,
+        pointAddress: item.pointId ? (pointMap.get(item.pointId)?.address || null) : null,
       }))
       .sort((a: any, b: any) => {
         const aDate = new Date(a.updatedAt || a.createdAt || 0).getTime();
@@ -6169,6 +6201,7 @@ app.post('/server/admin/marketplace/products', async (c) => {
       collectorId: payload.collectorId || null,
       pointId: payload.pointId || null,
       active: payload.active !== false,
+      photoUrl: payload.photoUrl || null,
       createdAt: now,
       updatedAt: now,
     };

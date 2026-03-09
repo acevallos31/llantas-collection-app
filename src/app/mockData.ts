@@ -33,6 +33,7 @@ export interface MarketplaceProduct {
   collectorName?: string | null;
   pointId?: string | null;
   pointName?: string | null;
+  pointAddress?: string | null;
   active: boolean;
   createdAt: string;
   updatedAt?: string;
