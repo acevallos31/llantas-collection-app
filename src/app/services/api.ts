@@ -39,7 +39,9 @@ console.log('🔧 API Base URL:', API_BASE_URL);
 console.log('🔑 Project ID:', projectId);
 
 // Local storage keys
+// Access token and refresh token keys
 const ACCESS_TOKEN_KEY = 'ecolant_access_token';
+const REFRESH_TOKEN_KEY = 'ecolant_refresh_token';
 const USER_KEY = 'ecolant_user';
 export const ANALYTICS_SESSION_ID_KEY = 'ecolant_session_id';
 
@@ -75,17 +77,32 @@ const resolveErrorMessage = (payload: any, fallbackMessage: string) => {
 };
 
 // Auto-logout on 401 Unauthorized
-const handleUnauthorizedResponse = (response: Response) => {
+const handleUnauthorizedResponse = async (response: Response): Promise<boolean> => {
   if (response.status === 401) {
-    console.warn('[API] 401 Unauthorized detected - clearing session');
+    console.warn('[API] 401 Unauthorized detected - attempting token refresh');
+    
+    // Try to refresh the token first
+    const refreshed = await authAPI.refreshToken();
+    
+    if (refreshed) {
+      console.log('[API] Token refreshed successfully');
+      return true; // Token was refreshed, caller should retry
+    }
+    
+    // Token refresh failed - clear session and redirect
+    console.warn('[API] Token refresh failed - clearing session');
     localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     
     // Redirect to root login page if not already there
     if (window.location.pathname !== '/') {
       window.location.href = '/';
     }
+    
+    return false; // Token refresh failed
   }
+  return false; // Not a 401 error
 };
 
 const buildApiError = (
@@ -174,9 +191,12 @@ export const authAPI = {
       throw buildApiError(response, result, 'Error al iniciar sesion', 'auth.signin');
     }
     
-    // Store token and user
+    // Store tokens and user
     if (result.session?.access_token) {
       localStorage.setItem(ACCESS_TOKEN_KEY, result.session.access_token);
+    }
+    if (result.session?.refresh_token) {
+      localStorage.setItem(REFRESH_TOKEN_KEY, result.session.refresh_token);
     }
     if (result.user) {
       localStorage.setItem(USER_KEY, JSON.stringify(result.user));
@@ -201,8 +221,9 @@ export const authAPI = {
         payload: result,
       });
       // Clear stored data if session is invalid and handle 401
-      handleUnauthorizedResponse(response);
+      await handleUnauthorizedResponse(response);
       localStorage.removeItem(ACCESS_TOKEN_KEY);
+      localStorage.removeItem(REFRESH_TOKEN_KEY);
       localStorage.removeItem(USER_KEY);
       return null;
     }
@@ -223,7 +244,53 @@ export const authAPI = {
     } finally {
       // Always clear local storage
       localStorage.removeItem(ACCESS_TOKEN_KEY);
+      localStorage.removeItem(REFRESH_TOKEN_KEY);
       localStorage.removeItem(USER_KEY);
+    }
+  },
+
+  logout() {
+    // Synchronous logout for immediate session clearing
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  },
+
+  async refreshToken(): Promise<boolean> {
+    try {
+      const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+      if (!refreshToken) {
+        return false;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${publicAnonKey}`,
+        },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+
+      const result = await parseResponseBody(response);
+
+      if (!response.ok) {
+        console.warn('[API:auth.refresh] Token refresh failed', result);
+        return false;
+      }
+
+      // Update tokens
+      if (result.session?.access_token) {
+        localStorage.setItem(ACCESS_TOKEN_KEY, result.session.access_token);
+      }
+      if (result.session?.refresh_token) {
+        localStorage.setItem(REFRESH_TOKEN_KEY, result.session.refresh_token);
+      }
+
+      return true;
+    } catch (error) {
+      console.error('[API:auth.refresh] Refresh error:', error);
+      return false;
     }
   },
 
@@ -257,6 +324,7 @@ export const authAPI = {
     }
 
     localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
 
     return result;

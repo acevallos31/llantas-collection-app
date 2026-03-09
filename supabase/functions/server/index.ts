@@ -1702,6 +1702,31 @@ app.post("/server/auth/signout", async (c) => {
   } catch (error) {
     console.log(`Signout error: ${error}`);
     return c.json({ error: 'Error signing out' }, 500);
+  // Refresh token
+  app.post("/server/auth/refresh", async (c) => {
+    try {
+      const { refresh_token } = await c.req.json();
+    
+      if (!refresh_token) {
+        return c.json({ error: 'Refresh token is required' }, 400);
+      }
+    
+      const supabase = getSupabaseClient(true);
+      const { data, error } = await supabase.auth.refreshSession({ refresh_token });
+    
+      if (error) {
+        console.log(`Token refresh error: ${error.message}`);
+        return c.json({ error: error.message }, 401);
+      }
+    
+      return c.json({ session: data.session });
+    
+    } catch (error) {
+      console.log(`Refresh token error: ${error}`);
+      return c.json({ error: 'Error refreshing token' }, 500);
+    }
+  });
+
   }
 });
 
