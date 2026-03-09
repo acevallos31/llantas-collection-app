@@ -74,12 +74,29 @@ const resolveErrorMessage = (payload: any, fallbackMessage: string) => {
   return fallbackMessage;
 };
 
+// Auto-logout on 401 Unauthorized
+const handleUnauthorizedResponse = (response: Response) => {
+  if (response.status === 401) {
+    console.warn('[API] 401 Unauthorized detected - clearing session');
+    localStorage.removeItem(ACCESS_TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+    
+    // Redirect to login if not already there
+    if (!window.location.pathname.includes('/login')) {
+      window.location.href = '/login';
+    }
+  }
+};
+
 const buildApiError = (
   response: Response,
   payload: any,
   fallbackMessage: string,
   context: string,
 ) => {
+  // Handle unauthorized automatically
+  handleUnauthorizedResponse(response);
+  
   const backendMessage = resolveErrorMessage(payload, fallbackMessage);
   const detailedMessage = `${backendMessage} (HTTP ${response.status} ${response.statusText})`;
 
@@ -183,7 +200,8 @@ export const authAPI = {
         url: response.url,
         payload: result,
       });
-      // Clear stored data if session is invalid
+      // Clear stored data if session is invalid and handle 401
+      handleUnauthorizedResponse(response);
       localStorage.removeItem(ACCESS_TOKEN_KEY);
       localStorage.removeItem(USER_KEY);
       return null;
