@@ -4832,23 +4832,55 @@ app.post("/server/payments/calculate-generator", async (c) => {
       return c.json({ error: 'Unauthorized' }, 401);
     }
 
-    const { tireCount, paymentPreference } = await c.req.json();
+    const {
+      tireCount,
+      tireType,
+      tireCondition,
+      collectionItems,
+      paymentPreference,
+    } = await c.req.json();
 
     const supabase = getSupabaseClient(true);
-    const { data, error } = await supabase.rpc('calculate_generator_payment', {
-      p_tire_count: tireCount,
-      p_payment_preference: paymentPreference,
-    });
+    const { data: generatorRatesData } = await supabase
+      .from('generator_tire_rates')
+      .select('tire_type, tire_condition, points_per_tire, cash_per_tire, min_points_on_cash')
+      .eq('is_active', true);
 
-    if (error) {
-      console.error('Error calculating generator payment:', error);
-      return c.json({ error: 'Error al calcular pago' }, 500);
+    const generatorRateMap = new Map<string, { pointsPerTire: number; cashPerTire: number; minPointsOnCash: number }>();
+    for (const rate of generatorRatesData || []) {
+      const key = `${normalizeLabel(rate.tire_type)}|${normalizeLabel(rate.tire_condition)}`;
+      generatorRateMap.set(key, {
+        pointsPerTire: Number(rate.points_per_tire || 0),
+        cashPerTire: Number(rate.cash_per_tire || 0),
+        minPointsOnCash: Number(rate.min_points_on_cash || 0),
+      });
     }
 
-    const result = Array.isArray(data) ? data[0] : data;
+    const totalCountFromItems = Array.isArray(collectionItems)
+      ? collectionItems.reduce((sum: number, item: any) => sum + Math.max(1, Number(item?.tireCount || 1)), 0)
+      : 0;
+
+    const collectionForCalculation = {
+      tireCount: totalCountFromItems > 0 ? totalCountFromItems : Math.max(1, Number(tireCount || 1)),
+      tireType: String(tireType || 'Otro'),
+      tireCondition: normalizeTireCondition(tireCondition),
+      collectionItems: Array.isArray(collectionItems) && collectionItems.length > 0 ? collectionItems : undefined,
+    };
+
+    const compensation = calculateGeneratorCompensationForCollection(
+      collectionForCalculation,
+      generatorRateMap,
+      paymentPreference || 'points',
+      {
+        pointsPerTire: 100,
+        cashPerTire: 5,
+        minPointsOnCash: 5,
+      },
+    );
+
     return c.json({
-      cashAmount: parseFloat(result.cash_amount),
-      pointsAwarded: result.points_awarded,
+      cashAmount: Number(compensation.cashAmount || 0),
+      pointsAwarded: Number(compensation.pointsAwarded || 0),
     });
   } catch (error) {
     console.error('Calculate generator payment error:', error);
@@ -5039,22 +5071,74 @@ app.post("/server/payments/generator", async (c) => {
       return c.json({ error: 'Unauthorized' }, 401);
     }
 
-    const { collectionId, generatorId, tireCount, paymentPreference } = await c.req.json();
+    const {
+      collectionId,
+      generatorId,
+      tireCount,
+      tireType,
+      tireCondition,
+      collectionItems,
+      paymentPreference,
+    } = await c.req.json();
 
-    const { data, error } = await supabase.rpc('create_generator_payment', {
-      p_collection_id: collectionId,
-      p_generator_id: generatorId,
-      p_tire_count: tireCount,
-      p_payment_preference: paymentPreference || 'points',
-    });
+    const { data: generatorRatesData } = await supabase
+      .from('generator_tire_rates')
+      .select('tire_type, tire_condition, points_per_tire, cash_per_tire, min_points_on_cash')
+      .eq('is_active', true);
 
-    if (error) {
+    const generatorRateMap = new Map<string, { pointsPerTire: number; cashPerTire: number; minPointsOnCash: number }>();
+    for (const rate of generatorRatesData || []) {
+      const key = `${normalizeLabel(rate.tire_type)}|${normalizeLabel(rate.tire_condition)}`;
+      generatorRateMap.set(key, {
+        pointsPerTire: Number(rate.points_per_tire || 0),
+        cashPerTire: Number(rate.cash_per_tire || 0),
+        minPointsOnCash: Number(rate.min_points_on_cash || 0),
+      });
+    }
+
+    const totalCountFromItems = Array.isArray(collectionItems)
+      ? collectionItems.reduce((sum: number, item: any) => sum + Math.max(1, Number(item?.tireCount || 1)), 0)
+      : 0;
+
+    const collectionForCalculation = {
+      tireCount: totalCountFromItems > 0 ? totalCountFromItems : Math.max(1, Number(tireCount || 1)),
+      tireType: String(tireType || 'Otro'),
+      tireCondition: normalizeTireCondition(tireCondition),
+      collectionItems: Array.isArray(collectionItems) && collectionItems.length > 0 ? collectionItems : undefined,
+    };
+
+    const normalizedPreference = paymentPreference === 'cash' ? 'cash' : 'points';
+    const compensation = calculateGeneratorCompensationForCollection(
+      collectionForCalculation,
+      generatorRateMap,
+      normalizedPreference,
+      {
+        pointsPerTire: 100,
+        cashPerTire: 5,
+        minPointsOnCash: 5,
+      },
+    );
+
+    const { data, error } = await supabase
+      .from('generator_payments')
+      .insert({
+        collection_id: collectionId,
+        generator_id: generatorId,
+        payment_preference: normalizedPreference,
+        tire_count: collectionForCalculation.tireCount,
+        cash_amount: Number(compensation.cashAmount || 0),
+        points_awarded: Number(compensation.pointsAwarded || 0),
+      })
+      .select('*')
+      .single();
+
+    if (error || !data) {
       console.error('Error creating generator payment:', error);
       return c.json({ error: 'Error al crear pago del generador' }, 500);
     }
 
     // Update user profile in KV if payment is in points
-    if (paymentPreference === 'points') {
+    if (normalizedPreference === 'points') {
       const generatorProfile = await kv.get(`user:${generatorId}`);
       if (generatorProfile) {
         generatorProfile.points = (generatorProfile.points || 0) + data.points_awarded;

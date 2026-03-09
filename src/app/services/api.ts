@@ -1391,7 +1391,12 @@ export const paymentsAPI = {
 
   async calculateGeneratorPayment(
     tireCount: number,
-    paymentPreference: 'points' | 'cash'
+    paymentPreference: 'points' | 'cash',
+    options?: {
+      tireType?: string;
+      tireCondition?: string;
+      collectionItems?: CollectionItem[];
+    },
   ): Promise<{
     cashAmount: number;
     pointsAwarded: number;
@@ -1399,7 +1404,13 @@ export const paymentsAPI = {
     const response = await fetch(`${API_BASE_URL}/payments/calculate-generator`, {
       method: 'POST',
       headers: getAuthHeaders(true),
-      body: JSON.stringify({ tireCount, paymentPreference }),
+      body: JSON.stringify({
+        tireCount,
+        paymentPreference,
+        tireType: options?.tireType,
+        tireCondition: options?.tireCondition,
+        collectionItems: options?.collectionItems,
+      }),
     });
 
     const result = await parseResponseBody(response);
@@ -1480,6 +1491,9 @@ export const paymentsAPI = {
     collectionId: string;
     generatorId: string;
     tireCount: number;
+    tireType?: string;
+    tireCondition?: string;
+    collectionItems?: CollectionItem[];
     paymentPreference: 'points' | 'cash';
   }): Promise<GeneratorPayment> {
     const response = await fetch(`${API_BASE_URL}/payments/generator`, {
