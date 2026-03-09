@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext.tsx';
-import { collectorAPI, collectionsAPI } from '../services/api.js';
-import type { Collection } from '../mockData.ts';
+import { collectorAPI, collectionsAPI, pointsAPI } from '../services/api.js';
+import type { Collection, CollectionPoint } from '../mockData.ts';
 import CollectionMap from '../components/CollectionMap.tsx';
 import { Card } from '../components/ui/card.tsx';
 import { Button } from '../components/ui/button.tsx';
@@ -19,6 +19,7 @@ import {
 } from '../components/ui/alert-dialog.tsx';
 import { ChevronLeft, Loader2, QrCode, Route, CalendarDays, MapPin, Package, Truck, CheckCircle2, PlayCircle, XCircle, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { jsPDF } from 'jspdf';
 import { API_BASE_URL, getAuthHeaders, ANALYTICS_SESSION_ID_KEY } from '../services/api.js';
 
 type RouteSuggestion = {
@@ -51,6 +52,33 @@ type RouteSuggestion = {
     valueScore: number;
     recommendation: string;
   };
+};
+
+const normalizeLabel = (value: string) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+const haversineKm = (
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number },
+) => {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRad(to.lat - from.lat);
+  const dLng = toRad(to.lng - from.lng);
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(from.lat)) * Math.cos(toRad(to.lat)) * Math.sin(dLng / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
+};
+
+const pointAcceptsTireType = (point: CollectionPoint, tireType: string) => {
+  if (!Array.isArray(point.acceptedTypes) || point.acceptedTypes.length === 0) return true;
+  const normalizedType = normalizeLabel(tireType);
+  return point.acceptedTypes.some((type) => normalizeLabel(type) === normalizedType);
 };
 
 export default function CollectorDashboardPage() {
@@ -409,7 +437,7 @@ export default function CollectorDashboardPage() {
           const hasCollectorAssigned = Boolean(item.collectorId);
           const isAvailable = !hasCollectorAssigned && (item.status === 'available' || item.status === 'pending');
           const isMine = item.collectorId === user?.id;
-          const isMyQueue = (item.status === 'pending' || item.status === 'in-progress') && isMine;
+          const isMyQueue = (item.status === 'pending' || item.status === 'in-progress' || item.status === 'arrived') && isMine;
           return isAvailable || isMyQueue;
         },
       );
@@ -444,7 +472,7 @@ export default function CollectorDashboardPage() {
 
   const updateStatus = async (
     collectionId: string,
-    status: 'available' | 'pending' | 'in-progress' | 'completed',
+    status: 'available' | 'pending' | 'in-progress' | 'arrived' | 'completed',
     extra: Partial<Collection> = {},
   ) => {
     try {
@@ -463,6 +491,122 @@ export default function CollectorDashboardPage() {
       await loadRouteSuggestions();
     } catch (error: any) {
       toast.error(error.message || 'No se pudo actualizar el estado');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const findNearestAvailablePoint = (collection: Collection, points: CollectionPoint[]) => {
+    const collectionCoords = collection.coordinates;
+    if (!collectionCoords || !Number.isFinite(Number(collectionCoords.lat)) || !Number.isFinite(Number(collectionCoords.lng))) {
+      return null;
+    }
+
+    const requiredTires = Number(collection.tireCount || 0);
+    const candidates = points.filter((point) => {
+      const availableCapacity = Number(point.capacity || 0) - Number(point.currentLoad || 0);
+      return availableCapacity >= requiredTires && pointAcceptsTireType(point, collection.tireType || '');
+    });
+
+    if (candidates.length === 0) return null;
+
+    let bestPoint: CollectionPoint | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+
+    for (const point of candidates) {
+      if (!point.coordinates || !Number.isFinite(Number(point.coordinates.lat)) || !Number.isFinite(Number(point.coordinates.lng))) {
+        continue;
+      }
+
+      const distance = haversineKm(
+        { lat: Number(collectionCoords.lat), lng: Number(collectionCoords.lng) },
+        { lat: Number(point.coordinates.lat), lng: Number(point.coordinates.lng) },
+      );
+
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestPoint = point;
+      }
+    }
+
+    if (!bestPoint) return null;
+    return { point: bestPoint, distanceKm: bestDistance };
+  };
+
+  const downloadDeliveryReceipt = (
+    collection: Collection,
+    point: CollectionPoint,
+    arrivalAt: string,
+    inventoryId?: string,
+  ) => {
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    const left = 15;
+    let y = 20;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text('Comprobante Individual de Entrega', left, y);
+
+    y += 10;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+
+    const receiptId = `DEL-${collection.id.slice(0, 8).toUpperCase()}`;
+    const lines = [
+      `Folio: ${receiptId}`,
+      `Fecha de entrega: ${new Date(arrivalAt).toLocaleString('es-HN')}`,
+      `Recolector: ${user?.name || 'N/A'}`,
+      `Recoleccion ID: ${collection.id}`,
+      `Direccion origen: ${collection.address}`,
+      `Centro de acopio: ${point.name}`,
+      `Direccion centro: ${point.address}`,
+      `Llantas entregadas: ${collection.tireCount}`,
+      `Tipo de llanta: ${collection.tireType}`,
+      `Inventario ID: ${inventoryId || 'N/A'}`,
+    ];
+
+    lines.forEach((line) => {
+      const wrapped = doc.splitTextToSize(line, 180);
+      doc.text(wrapped, left, y);
+      y += wrapped.length * 6;
+    });
+
+    doc.save(`comprobante-entrega-${collection.id}.pdf`);
+  };
+
+  const completeDelivery = async (collection: Collection) => {
+    try {
+      setUpdatingId(collection.id);
+
+      const points = await pointsAPI.getAll();
+      const nearest = findNearestAvailablePoint(collection, points || []);
+
+      if (!nearest) {
+        toast.error('No hay centro de acopio cercano con capacidad disponible para esta entrega');
+        return;
+      }
+
+      const arrival = await pointsAPI.registerArrival(nearest.point.id, {
+        collectionId: collection.id,
+        tireCount: collection.tireCount,
+        tireType: collection.tireType,
+        notes: 'Entrega completada por recolector desde ruta',
+      });
+
+      await collectionsAPI.update(collection.id, {
+        status: 'completed',
+        destinationPointId: nearest.point.id,
+        collectorPaymentPreference: collection.collectorPaymentPreference || 'points',
+      });
+
+      const arrivedAt = arrival?.inventory?.arrivedAt || new Date().toISOString();
+      downloadDeliveryReceipt(collection, nearest.point, arrivedAt, arrival?.inventory?.id);
+
+      toast.success(`Entrega completada en ${nearest.point.name}. Comprobante generado.`);
+      await loadCollections();
+      await loadRouteSuggestions();
+    } catch (error: any) {
+      toast.error(error.message || 'No se pudo completar la entrega');
     } finally {
       setUpdatingId(null);
     }
@@ -900,7 +1044,9 @@ export default function CollectorDashboardPage() {
                     ? 'Disponible'
                     : normalizedStatus === 'pending'
                       ? 'Pendiente'
-                      : 'En proceso'}
+                      : normalizedStatus === 'arrived'
+                        ? 'Entregada en centro'
+                        : 'En proceso'}
                 </Badge>
               </div>
 
@@ -952,7 +1098,7 @@ export default function CollectorDashboardPage() {
                     </Button>
                   )}
 
-                  {(normalizedStatus === 'pending' || normalizedStatus === 'in-progress') && isAssignedToMe && (
+                  {(normalizedStatus === 'pending' || normalizedStatus === 'in-progress' || normalizedStatus === 'arrived') && isAssignedToMe && (
                     <Button
                       variant="outline"
                       className="border-red-300 text-red-700 hover:bg-red-50"
@@ -969,26 +1115,15 @@ export default function CollectorDashboardPage() {
                   </Button>
                 </div>
 
-                {(normalizedStatus === 'pending' || normalizedStatus === 'in-progress') && isAssignedToMe && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <Button
-                      className="bg-green-600 hover:bg-green-700 text-sm"
-                      onClick={() => void updateStatus(collection.id, 'completed', { collectorPaymentPreference: 'cash_points' })}
-                      disabled={updatingId === collection.id}
-                    >
-                      {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
-                      Efectivo + Puntos
-                    </Button>
-
-                    <Button
-                      className="bg-emerald-700 hover:bg-emerald-800 text-sm"
-                      onClick={() => void updateStatus(collection.id, 'completed', { collectorPaymentPreference: 'points' })}
-                      disabled={updatingId === collection.id}
-                    >
-                      {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
-                      Solo Puntos
-                    </Button>
-                  </div>
+                {(normalizedStatus === 'in-progress' || normalizedStatus === 'arrived') && isAssignedToMe && (
+                  <Button
+                    className="w-full bg-green-600 hover:bg-green-700 text-sm"
+                    onClick={() => void completeDelivery(collection)}
+                    disabled={updatingId === collection.id}
+                  >
+                    {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+                    Entrega completada
+                  </Button>
                 )}
               </div>
                   </>

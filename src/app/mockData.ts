@@ -19,7 +19,7 @@ export interface Collection {
   tireType: string;
   tireCondition?: string;
   collectionItems?: CollectionItem[];
-  status: 'available' | 'pending' | 'in-progress' | 'completed' | 'cancelled';
+  status: 'available' | 'pending' | 'in-progress' | 'arrived' | 'completed' | 'cancelled';
   address: string;
   coordinates: { lat: number; lng: number };
   scheduledDate?: string;
@@ -29,6 +29,8 @@ export interface Collection {
   description?: string;
   collectorId?: string | null;
   collectorName?: string | null;
+  destinationPointId?: string;
+  arrivedAtPoint?: string;
   // Campos de pago
   pickupLat?: number;
   pickupLng?: number;

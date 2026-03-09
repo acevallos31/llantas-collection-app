@@ -36,6 +36,20 @@ const normalizeDestinationType = (value?: string) => {
   return 'acopio';
 };
 
+const normalizeLabel = (value: string) =>
+  String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+const pointAcceptsTireType = (point: any, tireType?: string) => {
+  const acceptedTypes = Array.isArray(point?.acceptedTypes) ? point.acceptedTypes : [];
+  if (!tireType || acceptedTypes.length === 0) return true;
+  const normalizedType = normalizeLabel(tireType);
+  return acceptedTypes.some((type: string) => normalizeLabel(type) === normalizedType);
+};
+
 const withPointStatus = (point: any) => {
   const currentLoad = Number(point.currentLoad || 0);
   const capacity = Number(point.capacity || 0);
@@ -4083,6 +4097,18 @@ app.post("/server/points/:pointId/arrivals", async (c) => {
       return c.json({ error: 'Collection point not found' }, 404);
     }
     
+    const normalizedPoint = withPointStatus(point);
+    const resolvedTireCount = Number(tireCount || collection.tireCount || 0);
+    const resolvedTireType = tireType || collection.tireType || 'unknown';
+
+    if (!pointAcceptsTireType(normalizedPoint, resolvedTireType)) {
+      return c.json({ error: 'Collection point does not accept this tire type' }, 400);
+    }
+
+    if (Number(normalizedPoint.availableCapacity || 0) < resolvedTireCount) {
+      return c.json({ error: 'Collection point has insufficient available capacity' }, 409);
+    }
+
     // Create inventory record
     const inventoryId = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -4091,8 +4117,8 @@ app.post("/server/points/:pointId/arrivals", async (c) => {
       pointId,
       collectionId,
       arrivedAt: now,
-      tireCount: tireCount || collection.tireCount || 0,
-      tireType: tireType || collection.tireType || 'unknown',
+      tireCount: resolvedTireCount,
+      tireType: resolvedTireType,
       weightKg: weightKg || null,
       notes: notes || null,
       recordedBy: user.id,
@@ -4103,7 +4129,7 @@ app.post("/server/points/:pointId/arrivals", async (c) => {
     // Update collection record
     collection.destinationPointId = pointId;
     collection.arrivedAtPoint = now;
-    if (collection.status === 'in_transit' || collection.status === 'pending') {
+    if (collection.status === 'in_transit' || collection.status === 'pending' || collection.status === 'in-progress') {
       collection.status = 'arrived';
     }
     await kv.set(collectionKey, collection);
@@ -4220,13 +4246,6 @@ app.get('/server/collector/routes/suggestions', async (c) => {
     console.log(`[Route Suggestions] Collections in KV: ${collections.length}`);
     console.log(`[Route Suggestions] Collection points: ${points.length}`);
 
-    const normalizeLabel = (value: string) =>
-      String(value || '')
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase()
-        .trim();
-
     const { data: collectorRatesData } = await supabase
       .from('collector_tire_rates')
       .select('tire_type, tire_condition, bonus_points')
@@ -4295,8 +4314,16 @@ app.get('/server/collector/routes/suggestions', async (c) => {
           lng: Number(collectionCoords.lng),
         };
 
-        const availablePoints = points.filter((point: any) => point?.coordinates && point.isAvailable !== false);
-        const candidatePoints = availablePoints.length > 0 ? availablePoints : points;
+        const requiredCapacity = Number(collection?.tireCount || 0);
+        const availablePoints = points.filter((point: any) => {
+          if (!point?.coordinates || point.isAvailable === false) return false;
+          if (!pointAcceptsTireType(point, collection?.tireType)) return false;
+          const availableCapacity = Number(point.availableCapacity || 0);
+          return availableCapacity >= requiredCapacity;
+        });
+        const candidatePoints = availablePoints.length > 0
+          ? availablePoints
+          : points.filter((point: any) => point?.coordinates && point.isAvailable !== false);
 
         if (candidatePoints.length === 0) {
           return null;
