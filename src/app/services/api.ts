@@ -10,7 +10,9 @@ import type {
   CollectorPayment,
   GeneratorPayment,
   CollectorTireRate,
-  GeneratorTireRate
+  GeneratorTireRate,
+  MarketplaceProduct,
+  MarketplaceOrder
 } from '../mockData';
 
 const DEFAULT_API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/server`;
@@ -124,7 +126,7 @@ export const authAPI = {
     password: string;
     name: string;
     phone: string;
-    type: 'generator' | 'collector';
+    type: 'generator' | 'collector' | 'cliente';
     address?: string;
   }) {
     const response = await fetch(`${API_BASE_URL}/auth/signup`, {
@@ -562,6 +564,206 @@ export const pointsAPI = {
   },
 };
 
+export const marketplaceAPI = {
+  async getProducts(): Promise<MarketplaceProduct[]> {
+    const response = await fetch(`${API_BASE_URL}/marketplace/products`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener productos del marketplace'));
+    }
+    return Array.isArray(result) ? result : [];
+  },
+
+  async getFulfillmentOptions(): Promise<{
+    collectors: Array<{ id: string; name: string; phone?: string }>;
+    points: Array<{ id: string; name: string; address?: string; phone?: string }>;
+  }> {
+    const response = await fetch(`${API_BASE_URL}/marketplace/fulfillment-options`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al cargar opciones de entrega'));
+    }
+    return {
+      collectors: Array.isArray(result?.collectors) ? result.collectors : [],
+      points: Array.isArray(result?.points) ? result.points : [],
+    };
+  },
+
+  async createOrder(data: {
+    productId?: string;
+    quantity?: number;
+    cartItems?: Array<{ productId: string; quantity: number }>;
+    fulfillmentType: 'collector' | 'point';
+    collectorId?: string;
+    pointId?: string;
+    notes?: string;
+  }): Promise<MarketplaceOrder> {
+    const response = await fetch(`${API_BASE_URL}/marketplace/orders`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(data),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al crear orden de compra'));
+    }
+    return result as MarketplaceOrder;
+  },
+
+  async getMyOrders(): Promise<MarketplaceOrder[]> {
+    const response = await fetch(`${API_BASE_URL}/marketplace/orders`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener mis órdenes'));
+    }
+    return Array.isArray(result) ? result : [];
+  },
+
+  async adminGetProducts(): Promise<MarketplaceProduct[]> {
+    const response = await fetch(`${API_BASE_URL}/admin/marketplace/products`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener productos del admin marketplace'));
+    }
+    return Array.isArray(result) ? result : [];
+  },
+
+  async adminCreateProduct(payload: {
+    name: string;
+    description?: string;
+    tireType: string;
+    tireCondition?: string;
+    price: number;
+    stock: number;
+    sellerType: 'collector' | 'point' | 'mixed';
+    collectorId?: string;
+    pointId?: string;
+    active?: boolean;
+  }): Promise<MarketplaceProduct> {
+    const response = await fetch(`${API_BASE_URL}/admin/marketplace/products`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(payload),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al crear producto marketplace'));
+    }
+    return result as MarketplaceProduct;
+  },
+
+  async adminUpdateProduct(productId: string, payload: Record<string, any>): Promise<MarketplaceProduct> {
+    const response = await fetch(`${API_BASE_URL}/admin/marketplace/products/${productId}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify(payload),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al actualizar producto marketplace'));
+    }
+    return result as MarketplaceProduct;
+  },
+
+  async adminDeleteProduct(productId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/admin/marketplace/products/${productId}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al eliminar producto marketplace'));
+    }
+  },
+
+  async adminGetOrders(): Promise<MarketplaceOrder[]> {
+    const response = await fetch(`${API_BASE_URL}/admin/marketplace/orders`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener ventas del marketplace'));
+    }
+    return Array.isArray(result) ? result : [];
+  },
+
+  async adminUpdateOrderStatus(orderId: string, status: 'available' | 'pending' | 'in-progress' | 'picked-up' | 'confirmed' | 'delivered' | 'cancelled') {
+    const response = await fetch(`${API_BASE_URL}/admin/marketplace/orders/${orderId}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({ status }),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al actualizar estado de venta'));
+    }
+    return result as MarketplaceOrder;
+  },
+
+  async collectorGetAvailableOrders(): Promise<MarketplaceOrder[]> {
+    const response = await fetch(`${API_BASE_URL}/collector/marketplace-orders`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al obtener entregas marketplace para recolector'));
+    }
+    return Array.isArray(result) ? result : [];
+  },
+
+  async collectorTakeOrder(orderId: string): Promise<MarketplaceOrder> {
+    const response = await fetch(`${API_BASE_URL}/collector/marketplace-orders/${orderId}/take`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'No se pudo tomar la entrega marketplace'));
+    }
+    return result as MarketplaceOrder;
+  },
+
+  async collectorUpdateOrderStatus(orderId: string, status: 'in-progress' | 'picked-up' | 'delivered'): Promise<MarketplaceOrder> {
+    const response = await fetch(`${API_BASE_URL}/collector/marketplace-orders/${orderId}/status`, {
+      method: 'PUT',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({ status }),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'No se pudo actualizar estado de entrega marketplace'));
+    }
+    return result as MarketplaceOrder;
+  },
+};
+
 export const adminAPI = {
   async getUsers(): Promise<any[]> {
     const response = await fetch(`${API_BASE_URL}/admin/users`, {
@@ -576,7 +778,7 @@ export const adminAPI = {
     return result;
   },
 
-  async updateUserRole(userId: string, type: 'generator' | 'collector' | 'admin') {
+  async updateUserRole(userId: string, type: 'generator' | 'collector' | 'admin' | 'cliente') {
     const response = await fetch(`${API_BASE_URL}/admin/users/${userId}/role`, {
       method: 'PUT',
       headers: getAuthHeaders(true),
@@ -595,7 +797,7 @@ export const adminAPI = {
     password: string;
     name: string;
     phone?: string;
-    type: 'generator' | 'collector' | 'admin';
+    type: 'generator' | 'collector' | 'admin' | 'cliente';
     address?: string;
   }) {
     const response = await fetch(`${API_BASE_URL}/admin/users`, {
@@ -618,7 +820,7 @@ export const adminAPI = {
       email: string;
       phone?: string;
       address?: string;
-      type: 'generator' | 'collector' | 'admin';
+      type: 'generator' | 'collector' | 'admin' | 'cliente';
     },
   ) {
     const response = await fetch(`${API_BASE_URL}/admin/users/${userId}`, {
@@ -855,7 +1057,7 @@ export const adminAPI = {
     from?: string;
     to?: string;
     period?: 'daily' | 'weekly' | 'monthly';
-    userType?: 'all' | 'generator' | 'collector' | 'admin' | 'guest';
+    userType?: 'all' | 'generator' | 'collector' | 'admin' | 'cliente' | 'guest';
   }) {
     const params = new URLSearchParams();
     if (filters.from) params.set('from', filters.from);
@@ -893,7 +1095,7 @@ export const adminAPI = {
     startsAt: string;
     endsAt?: string;
     period?: 'daily' | 'weekly' | 'monthly';
-    userType?: 'all' | 'generator' | 'collector' | 'admin' | 'guest';
+    userType?: 'all' | 'generator' | 'collector' | 'admin' | 'cliente' | 'guest';
   }) {
     const response = await fetch(`${API_BASE_URL}/admin/analytics/campaigns`, {
       method: 'POST',
@@ -915,7 +1117,7 @@ export const adminAPI = {
       startsAt: string;
       endsAt?: string;
       period?: 'daily' | 'weekly' | 'monthly';
-      userType?: 'all' | 'generator' | 'collector' | 'admin' | 'guest';
+      userType?: 'all' | 'generator' | 'collector' | 'admin' | 'cliente' | 'guest';
     },
   ) {
     const response = await fetch(`${API_BASE_URL}/admin/analytics/campaigns/${campaignId}`, {
@@ -1654,7 +1856,7 @@ export const paymentsAPI = {
   // Estadísticas de pagos
   async getPaymentStats(filters?: {
     userId?: string;
-    userType?: 'generator' | 'collector';
+    userType?: 'generator' | 'collector' | 'cliente';
     dateFrom?: string;
     dateTo?: string;
   }): Promise<{

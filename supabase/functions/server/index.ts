@@ -170,6 +170,236 @@ const findRedemptionById = async (redemptionId: string) => {
   return null;
 };
 
+const MARKETPLACE_PHOTOS = {
+  automovil: [
+    'https://images.unsplash.com/photo-1549399542-7e82138f06f8?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1511919884226-fd3cad34687c?auto=format&fit=crop&w=1200&q=80',
+  ],
+  camion: [
+    'https://images.unsplash.com/photo-1580273916550-e323be2ae537?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1501700493788-fa1a4fc9fe62?auto=format&fit=crop&w=1200&q=80',
+  ],
+  autobus: [
+    'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=1200&q=80',
+  ],
+  motocicleta: [
+    'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1519751138087-5bf79df62d5b?auto=format&fit=crop&w=1200&q=80',
+  ],
+  bicicleta: [
+    'https://images.unsplash.com/photo-1511994298241-608e28f14fde?auto=format&fit=crop&w=1200&q=80',
+  ],
+  reciclaje: [
+    'https://images.unsplash.com/photo-1613145997970-db84a7975fbb?auto=format&fit=crop&w=1200&q=80',
+  ],
+};
+
+const getAuthContext = async (c: any) => {
+  const accessToken = c.req.header('Authorization')?.split(' ')[1];
+  if (!accessToken) {
+    return { error: c.json({ error: 'Unauthorized' }, 401) };
+  }
+
+  const supabase = getSupabaseClient(true);
+  const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+
+  if (error || !user?.id) {
+    return { error: c.json({ error: 'Unauthorized' }, 401) };
+  }
+
+  const userProfile = await kv.get(`user:${user.id}`);
+  if (!userProfile) {
+    return { error: c.json({ error: 'User profile not found' }, 404) };
+  }
+
+  return { user, userProfile };
+};
+
+const ensureMarketplaceSeed = async () => {
+  const existing = await kv.getByPrefix('marketplace:product:');
+  if (existing.length > 0) return;
+
+  const pointList = await kv.getByPrefix('point:');
+  const collectorList = (await kv.getByPrefix('user:')).filter((user: any) => user?.type === 'collector');
+
+  const pointByIndex = (index: number) => pointList[index % Math.max(pointList.length, 1)] || null;
+  const collectorByIndex = (index: number) => collectorList[index % Math.max(collectorList.length, 1)] || null;
+
+  const inventoryRows = await Promise.all(
+    pointList.map(async (point: any) => {
+      const inventory = await kv.getByPrefix(`inventory:${point.id}:`);
+      return inventory.map((item: any) => ({ ...item, pointName: point.name }));
+    }),
+  );
+
+  const inventoryItems = inventoryRows.flat();
+  const reusableInventoryItems = inventoryItems.filter((item: any) => {
+    const condition = normalizeLabel(item?.tireCondition || item?.condition || 'buena');
+    return condition === 'buena' || condition === 'excelente';
+  });
+
+  const demoProducts: any[] = [
+    {
+      name: 'Lote x4 llantas Automovil 205/55R16 - Excelente',
+      description: 'Lote de 4 llantas de automovil, medida 205/55R16, estado excelente, desgaste uniforme, lista para montaje inmediato.',
+      tireType: 'Automovil',
+      tireBrand: 'Michelin',
+      tireModel: 'Primacy',
+      tireSize: '205/55R16',
+      numeration: '205/55R16 91V',
+      lotSize: 4,
+      tireCondition: 'excelente',
+      price: 6400,
+      stock: 6,
+      sellerType: 'point',
+      marketType: 'resale',
+      photos: MARKETPLACE_PHOTOS.automovil,
+    },
+    {
+      name: 'Lote x2 llantas Camion 295/80R22.5 - Buena',
+      description: 'Par de llantas para camion 295/80R22.5, carcasa en buen estado, recomendadas para eje de traccion secundaria.',
+      tireType: 'Camion',
+      tireBrand: 'Bridgestone',
+      tireModel: 'M840',
+      tireSize: '295/80R22.5',
+      numeration: '295/80R22.5 152/148M',
+      lotSize: 2,
+      tireCondition: 'buena',
+      price: 8600,
+      stock: 5,
+      sellerType: 'point',
+      marketType: 'resale',
+      photos: MARKETPLACE_PHOTOS.camion,
+    },
+    {
+      name: 'Lote x8 llantas Motocicleta 110/90-17 - Buena',
+      description: 'Paquete mayorista de 8 llantas para motocicleta, medidas mixtas 110/90-17 y 90/90-17, ideal para taller.',
+      tireType: 'Motocicleta',
+      tireBrand: 'Pirelli',
+      tireModel: 'Sport Demon',
+      tireSize: '110/90-17',
+      numeration: '110/90-17 60H',
+      lotSize: 8,
+      tireCondition: 'buena',
+      price: 7200,
+      stock: 4,
+      sellerType: 'mixed',
+      marketType: 'resale',
+      photos: MARKETPLACE_PHOTOS.motocicleta,
+    },
+    {
+      name: 'Llanta Autobus 275/70R22.5 - Excelente',
+      description: 'Unidad de llanta para autobus urbano/interurbano, numeracion 275/70R22.5, estado excelente.',
+      tireType: 'Autobus',
+      tireBrand: 'Goodyear',
+      tireModel: 'UrbanMax',
+      tireSize: '275/70R22.5',
+      numeration: '275/70R22.5 148J',
+      lotSize: 1,
+      tireCondition: 'excelente',
+      price: 5900,
+      stock: 7,
+      sellerType: 'collector',
+      marketType: 'resale',
+      photos: MARKETPLACE_PHOTOS.autobus,
+    },
+    {
+      name: 'Llanta Bicicleta 29x2.10 - Buena',
+      description: 'Llanta para bicicleta de montana 29x2.10, taco intermedio y estructura reforzada, estado bueno.',
+      tireType: 'Bicicleta',
+      tireBrand: 'Maxxis',
+      tireModel: 'CrossMark',
+      tireSize: '29x2.10',
+      numeration: '29x2.10 60TPI',
+      lotSize: 1,
+      tireCondition: 'buena',
+      price: 680,
+      stock: 14,
+      sellerType: 'point',
+      marketType: 'resale',
+      photos: MARKETPLACE_PHOTOS.bicicleta,
+    },
+    {
+      name: 'Lote reciclaje caucho triturado - Llanta regular/desgastada',
+      description: 'Material para reciclaje y transformacion en materia prima. No apto para reventa vehicular.',
+      tireType: 'Mixto',
+      tireBrand: 'N/A',
+      tireModel: 'Reciclaje',
+      tireSize: 'Mixto',
+      numeration: 'Material reciclable',
+      lotSize: 20,
+      tireCondition: 'desgastada',
+      price: 1200,
+      stock: 10,
+      sellerType: 'point',
+      marketType: 'recycling',
+      photos: MARKETPLACE_PHOTOS.reciclaje,
+    },
+  ];
+
+  // Generate extra products from real inventory arrivals (good/excellent only)
+  reusableInventoryItems.slice(0, 8).forEach((item: any, index: number) => {
+    const point = pointByIndex(index);
+    const tireType = item.tireType || 'Automovil';
+    const condition = normalizeLabel(item.tireCondition || 'buena') === 'excelente' ? 'excelente' : 'buena';
+    const size = tireType === 'Camion' ? '295/80R22.5' : tireType === 'Motocicleta' ? '110/90-17' : '205/55R16';
+    const photos = MARKETPLACE_PHOTOS[normalizeLabel(tireType)] || MARKETPLACE_PHOTOS.automovil;
+    demoProducts.push({
+      name: `${tireType} ${size} - ${condition === 'excelente' ? 'Excelente' : 'Buena'} (${point?.name || 'Centro'})`,
+      description: `Producto generado desde inventario real del centro ${point?.name || 'N/A'}. Estado ${condition}. Numeracion ${size}.`,
+      tireType,
+      tireBrand: 'Mixto',
+      tireModel: 'Inventario Centro',
+      tireSize: size,
+      numeration: size,
+      lotSize: 1,
+      tireCondition: condition,
+      price: condition === 'excelente' ? 2400 : 1800,
+      stock: Math.max(1, Number(item.tireCount || 1)),
+      sellerType: 'point',
+      marketType: 'resale',
+      photos,
+      forcePointId: point?.id || null,
+    });
+  });
+
+  for (let idx = 0; idx < demoProducts.length; idx += 1) {
+    const seed = demoProducts[idx];
+    const productId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const assignedPoint = seed.forcePointId
+      ? pointList.find((item: any) => item.id === seed.forcePointId)
+      : pointByIndex(idx);
+    const assignedCollector = collectorByIndex(idx);
+    const payload = {
+      id: productId,
+      name: seed.name,
+      description: seed.description,
+      tireType: seed.tireType,
+      tireBrand: seed.tireBrand || 'Mixto',
+      tireModel: seed.tireModel || 'N/A',
+      tireSize: seed.tireSize || seed.numeration || 'N/A',
+      numeration: seed.numeration || seed.tireSize || 'N/A',
+      lotSize: Number(seed.lotSize || 1),
+      tireCondition: seed.tireCondition,
+      photoUrl: Array.isArray(seed.photos) ? seed.photos[0] : null,
+      photoUrls: Array.isArray(seed.photos) ? seed.photos : [],
+      marketType: seed.marketType || 'resale',
+      price: Number(seed.price || 0),
+      stock: Math.max(0, Number(seed.stock || 0)),
+      sellerType: seed.sellerType,
+      pointId: seed.sellerType === 'point' || seed.sellerType === 'mixed' ? (assignedPoint?.id || null) : null,
+      pointName: seed.sellerType === 'point' || seed.sellerType === 'mixed' ? (assignedPoint?.name || null) : null,
+      collectorId: seed.sellerType === 'collector' || seed.sellerType === 'mixed' ? (assignedCollector?.id || null) : null,
+      collectorName: seed.sellerType === 'collector' || seed.sellerType === 'mixed' ? (assignedCollector?.name || null) : null,
+      active: seed.active !== false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await kv.set(`marketplace:product:${productId}`, payload);
+  }
+};
+
 const repairMojibake = (value: unknown) => {
   const text = String(value ?? '');
   if (!text) return '';
@@ -1339,7 +1569,9 @@ app.get('/server/analytics/session/screen-share-ice/:sessionId/collector', async
 app.post("/server/auth/signup", async (c) => {
   try {
     const { email, password, name, phone, type, address } = await c.req.json();
-    const safeType = type === 'collector' ? 'collector' : 'generator';
+    const safeType = ['generator', 'collector', 'cliente'].includes(String(type))
+      ? String(type)
+      : 'generator';
     
     const supabase = getSupabaseClient(true);
     
@@ -1782,8 +2014,8 @@ app.post("/server/collections", async (c) => {
     }
     
     const userProfile = await kv.get(`user:${user.id}`);
-    if (userProfile?.type === 'collector') {
-      return c.json({ error: 'Collectors cannot create collections' }, 403);
+    if (userProfile?.type !== 'generator') {
+      return c.json({ error: 'Only generators can create collections' }, 403);
     }
 
     const collectionData = await c.req.json();
@@ -2806,14 +3038,14 @@ app.post('/server/admin/users', async (c) => {
       return c.json({ error: 'Password must be at least 6 characters' }, 400);
     }
 
-    if (!['generator', 'collector', 'admin'].includes(type)) {
+    if (!['generator', 'collector', 'admin', 'cliente'].includes(type)) {
       return c.json({ error: 'Invalid role' }, 400);
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
     const safePhone = phone || '';
     const safeAddress = address || '';
-    const safeType = type as 'generator' | 'collector' | 'admin';
+    const safeType = type as 'generator' | 'collector' | 'admin' | 'cliente';
 
     const supabase = getSupabaseClient(true);
     const { data: createdData, error: createError } = await supabase.auth.admin.createUser({
@@ -2876,7 +3108,7 @@ app.put('/server/admin/users/:userId', async (c) => {
     }
 
     const nextType = updates.type || current.type;
-    if (!['generator', 'collector', 'admin'].includes(nextType)) {
+    if (!['generator', 'collector', 'admin', 'cliente'].includes(nextType)) {
       return c.json({ error: 'Invalid role' }, 400);
     }
 
@@ -2928,7 +3160,7 @@ app.put('/server/admin/users/:userId/role', async (c) => {
     const userId = c.req.param('userId');
     const { type } = await c.req.json();
 
-    if (!['generator', 'collector', 'admin'].includes(type)) {
+    if (!['generator', 'collector', 'admin', 'cliente'].includes(type)) {
       return c.json({ error: 'Invalid role' }, 400);
     }
 
@@ -5734,8 +5966,476 @@ app.put("/server/payments/rates/generator/:rateId", async (c) => {
   }
 });
 
+// ==================== MARKETPLACE ROUTES ====================
+
+app.get('/server/marketplace/products', async (c) => {
+  try {
+    const auth = await getAuthContext(c);
+    if (auth.error) return auth.error;
+
+    await ensureMarketplaceSeed();
+
+    const users = await kv.getByPrefix('user:');
+    const points = await kv.getByPrefix('point:');
+    const userMap = new Map(users.map((item: any) => [item.id, item]));
+    const pointMap = new Map(points.map((item: any) => [item.id, item]));
+
+    const products = (await kv.getByPrefix('marketplace:product:'))
+      .filter((item: any) => item?.active !== false && Number(item?.stock || 0) > 0 && (item?.marketType || 'resale') === 'resale')
+      .map((item: any) => ({
+        ...item,
+        collectorName: item.collectorId ? (userMap.get(item.collectorId)?.name || null) : null,
+        pointName: item.pointId ? (pointMap.get(item.pointId)?.name || null) : null,
+      }))
+      .sort((a: any, b: any) => {
+        const aDate = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const bDate = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        return bDate - aDate;
+      });
+
+    return c.json(products);
+  } catch (error) {
+    console.log(`Marketplace products error: ${error}`);
+    return c.json({ error: 'Error getting marketplace products' }, 500);
+  }
+});
+
+app.get('/server/marketplace/fulfillment-options', async (c) => {
+  try {
+    const auth = await getAuthContext(c);
+    if (auth.error) return auth.error;
+
+    const users = await kv.getByPrefix('user:');
+    const points = await kv.getByPrefix('point:');
+
+    const collectors = users
+      .filter((item: any) => item?.type === 'collector')
+      .map((item: any) => ({ id: item.id, name: item.name, phone: item.phone || '' }));
+
+    const normalizedPoints = points.map((item: any) => ({
+      id: item.id,
+      name: item.name,
+      address: item.address || '',
+      phone: item.phone || '',
+    }));
+
+    return c.json({ collectors, points: normalizedPoints });
+  } catch (error) {
+    console.log(`Marketplace fulfillment options error: ${error}`);
+    return c.json({ error: 'Error getting fulfillment options' }, 500);
+  }
+});
+
+app.post('/server/marketplace/orders', async (c) => {
+  try {
+    const auth = await getAuthContext(c);
+    if (auth.error) return auth.error;
+    const { user, userProfile } = auth;
+
+    if (userProfile.type !== 'cliente') {
+      return c.json({ error: 'Only cliente users can place marketplace orders' }, 403);
+    }
+
+    const { productId, quantity, cartItems, fulfillmentType, collectorId, pointId, notes } = await c.req.json();
+    const safeFulfillmentType = fulfillmentType === 'point' ? 'point' : 'collector';
+
+    const normalizedCart = Array.isArray(cartItems) && cartItems.length > 0
+      ? cartItems
+      : [{ productId, quantity }];
+
+    if (normalizedCart.length === 0 || !normalizedCart.every((item: any) => item?.productId)) {
+      return c.json({ error: 'At least one product is required in cart' }, 400);
+    }
+
+    const users = await kv.getByPrefix('user:');
+    const points = await kv.getByPrefix('point:');
+    const userMap = new Map(users.map((item: any) => [item.id, item]));
+    const pointMap = new Map(points.map((item: any) => [item.id, item]));
+
+    const selectedPointId = safeFulfillmentType === 'point' ? pointId : null;
+    if (safeFulfillmentType === 'point' && !selectedPointId) {
+      return c.json({ error: 'Selecciona un centro de acopio para esta compra' }, 400);
+    }
+
+    const orderItems: any[] = [];
+    let totalAmount = 0;
+    let totalQuantity = 0;
+
+    for (const cartItem of normalizedCart) {
+      const currentProduct = await kv.get(`marketplace:product:${cartItem.productId}`);
+      if (!currentProduct || currentProduct.active === false) {
+        return c.json({ error: `Producto no disponible: ${cartItem.productId}` }, 404);
+      }
+
+      if ((currentProduct.marketType || 'resale') !== 'resale') {
+        return c.json({ error: 'Productos de reciclaje no aplican para compra cliente tradicional' }, 400);
+      }
+
+      const itemQty = Math.max(1, Number(cartItem.quantity || 1));
+      const currentStock = Number(currentProduct.stock || 0);
+      if (currentStock < itemQty) {
+        return c.json({ error: `Inventario insuficiente para ${currentProduct.name}` }, 400);
+      }
+
+      const unitPrice = Number(currentProduct.price || 0);
+      const subtotal = Number((unitPrice * itemQty).toFixed(2));
+
+      orderItems.push({
+        productId: currentProduct.id,
+        productName: currentProduct.name,
+        tireType: currentProduct.tireType,
+        tireSize: currentProduct.tireSize || currentProduct.numeration || null,
+        tireCondition: currentProduct.tireCondition || null,
+        quantity: itemQty,
+        unitPrice,
+        subtotal,
+        pointId: selectedPointId || currentProduct.pointId || null,
+        pointName: selectedPointId
+          ? (pointMap.get(selectedPointId)?.name || null)
+          : (currentProduct.pointId ? (pointMap.get(currentProduct.pointId)?.name || currentProduct.pointName || null) : null),
+      });
+
+      totalAmount += subtotal;
+      totalQuantity += itemQty;
+    }
+
+    const preferredCollectorId = safeFulfillmentType === 'collector' ? (collectorId || null) : null;
+    const resolvedPointId = safeFulfillmentType === 'point'
+      ? selectedPointId
+      : (orderItems.find((item) => item.pointId)?.pointId || null);
+
+    const now = new Date().toISOString();
+    const orderId = crypto.randomUUID();
+    const firstItem = orderItems[0];
+    const orderStatus = safeFulfillmentType === 'collector' ? 'available' : 'confirmed';
+
+    const order = {
+      id: orderId,
+      productId: firstItem?.productId || '',
+      productName: firstItem?.productName || 'Carrito marketplace',
+      buyerId: user.id,
+      buyerName: userProfile.name || null,
+      items: orderItems,
+      quantity: totalQuantity,
+      unitPrice: Number(firstItem?.unitPrice || 0),
+      totalAmount: Number(totalAmount.toFixed(2)),
+      status: orderStatus,
+      fulfillmentType: safeFulfillmentType,
+      preferredCollectorId,
+      collectorId: null,
+      collectorName: null,
+      pointId: resolvedPointId,
+      pointName: resolvedPointId ? (pointMap.get(resolvedPointId)?.name || null) : null,
+      notes: String(notes || '').trim() || '',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await kv.set(`marketplace:order:${orderId}`, order);
+
+    for (const item of orderItems) {
+      const currentProduct = await kv.get(`marketplace:product:${item.productId}`);
+      if (!currentProduct) continue;
+      await kv.set(`marketplace:product:${item.productId}`, {
+        ...currentProduct,
+        stock: Math.max(0, Number(currentProduct.stock || 0) - Number(item.quantity || 0)),
+        updatedAt: now,
+      });
+    }
+
+    return c.json(order, 201);
+  } catch (error) {
+    console.log(`Create marketplace order error: ${error}`);
+    return c.json({ error: 'Error creating marketplace order' }, 500);
+  }
+});
+
+app.get('/server/marketplace/orders', async (c) => {
+  try {
+    const auth = await getAuthContext(c);
+    if (auth.error) return auth.error;
+
+    const { user, userProfile } = auth;
+    const allOrders = await kv.getByPrefix('marketplace:order:');
+    const visibleOrders = userProfile.type === 'admin'
+      ? allOrders
+      : allOrders.filter((item: any) => item?.buyerId === user.id);
+
+    return c.json(
+      visibleOrders.sort((a: any, b: any) => {
+        const aDate = new Date(a.createdAt || 0).getTime();
+        const bDate = new Date(b.createdAt || 0).getTime();
+        return bDate - aDate;
+      }),
+    );
+  } catch (error) {
+    console.log(`Get marketplace orders error: ${error}`);
+    return c.json({ error: 'Error getting marketplace orders' }, 500);
+  }
+});
+
+app.get('/server/admin/marketplace/products', async (c) => {
+  const adminCheck = await requireAdmin(c);
+  if (adminCheck.error) return adminCheck.error;
+
+  try {
+    await ensureMarketplaceSeed();
+    const products = await kv.getByPrefix('marketplace:product:');
+    return c.json(products);
+  } catch (error) {
+    console.log(`Admin marketplace products error: ${error}`);
+    return c.json({ error: 'Error getting admin marketplace products' }, 500);
+  }
+});
+
+app.post('/server/admin/marketplace/products', async (c) => {
+  const adminCheck = await requireAdmin(c);
+  if (adminCheck.error) return adminCheck.error;
+
+  try {
+    const payload = await c.req.json();
+    if (!payload?.name || !payload?.tireType) {
+      return c.json({ error: 'name and tireType are required' }, 400);
+    }
+
+    const now = new Date().toISOString();
+    const productId = crypto.randomUUID();
+    const product = {
+      id: productId,
+      name: String(payload.name),
+      description: String(payload.description || ''),
+      tireType: String(payload.tireType),
+      tireCondition: String(payload.tireCondition || 'regular'),
+      price: Number(payload.price || 0),
+      stock: Math.max(0, Number(payload.stock || 0)),
+      sellerType: ['collector', 'point', 'mixed'].includes(String(payload.sellerType)) ? payload.sellerType : 'point',
+      collectorId: payload.collectorId || null,
+      pointId: payload.pointId || null,
+      active: payload.active !== false,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await kv.set(`marketplace:product:${productId}`, product);
+    return c.json(product, 201);
+  } catch (error) {
+    console.log(`Admin create marketplace product error: ${error}`);
+    return c.json({ error: 'Error creating marketplace product' }, 500);
+  }
+});
+
+app.put('/server/admin/marketplace/products/:productId', async (c) => {
+  const adminCheck = await requireAdmin(c);
+  if (adminCheck.error) return adminCheck.error;
+
+  try {
+    const productId = c.req.param('productId');
+    const current = await kv.get(`marketplace:product:${productId}`);
+    if (!current) {
+      return c.json({ error: 'Product not found' }, 404);
+    }
+
+    const updates = await c.req.json();
+    const updated = {
+      ...current,
+      ...updates,
+      id: productId,
+      price: updates?.price !== undefined ? Number(updates.price) : Number(current.price || 0),
+      stock: updates?.stock !== undefined ? Math.max(0, Number(updates.stock)) : Math.max(0, Number(current.stock || 0)),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await kv.set(`marketplace:product:${productId}`, updated);
+    return c.json(updated);
+  } catch (error) {
+    console.log(`Admin update marketplace product error: ${error}`);
+    return c.json({ error: 'Error updating marketplace product' }, 500);
+  }
+});
+
+app.delete('/server/admin/marketplace/products/:productId', async (c) => {
+  const adminCheck = await requireAdmin(c);
+  if (adminCheck.error) return adminCheck.error;
+
+  try {
+    const productId = c.req.param('productId');
+    const current = await kv.get(`marketplace:product:${productId}`);
+    if (!current) {
+      return c.json({ error: 'Product not found' }, 404);
+    }
+
+    await kv.del(`marketplace:product:${productId}`);
+    return c.json({ message: 'Marketplace product deleted successfully' });
+  } catch (error) {
+    console.log(`Admin delete marketplace product error: ${error}`);
+    return c.json({ error: 'Error deleting marketplace product' }, 500);
+  }
+});
+
+app.get('/server/admin/marketplace/orders', async (c) => {
+  const adminCheck = await requireAdmin(c);
+  if (adminCheck.error) return adminCheck.error;
+
+  try {
+    const orders = await kv.getByPrefix('marketplace:order:');
+    const sorted = orders.sort((a: any, b: any) => {
+      const aDate = new Date(a.createdAt || 0).getTime();
+      const bDate = new Date(b.createdAt || 0).getTime();
+      return bDate - aDate;
+    });
+    return c.json(sorted);
+  } catch (error) {
+    console.log(`Admin marketplace orders error: ${error}`);
+    return c.json({ error: 'Error getting marketplace orders' }, 500);
+  }
+});
+
+app.put('/server/admin/marketplace/orders/:orderId', async (c) => {
+  const adminCheck = await requireAdmin(c);
+  if (adminCheck.error) return adminCheck.error;
+
+  try {
+    const orderId = c.req.param('orderId');
+    const current = await kv.get(`marketplace:order:${orderId}`);
+    if (!current) {
+      return c.json({ error: 'Order not found' }, 404);
+    }
+
+    const { status } = await c.req.json();
+    const safeStatus = ['available', 'pending', 'in-progress', 'picked-up', 'confirmed', 'delivered', 'cancelled'].includes(String(status))
+      ? String(status)
+      : null;
+    if (!safeStatus) {
+      return c.json({ error: 'Invalid status' }, 400);
+    }
+
+    const updated = {
+      ...current,
+      status: safeStatus,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await kv.set(`marketplace:order:${orderId}`, updated);
+    return c.json(updated);
+  } catch (error) {
+    console.log(`Admin update marketplace order error: ${error}`);
+    return c.json({ error: 'Error updating marketplace order' }, 500);
+  }
+});
+
+app.get('/server/collector/marketplace-orders', async (c) => {
+  try {
+    const auth = await getAuthContext(c);
+    if (auth.error) return auth.error;
+    const { user, userProfile } = auth;
+
+    if (userProfile.type !== 'collector' && userProfile.type !== 'admin') {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    const orders = await kv.getByPrefix('marketplace:order:');
+    const actionable = orders.filter((item: any) => {
+      if (item?.fulfillmentType !== 'collector') return false;
+      if (item?.status === 'available') return true;
+      if (item?.collectorId === user.id && ['pending', 'in-progress', 'picked-up'].includes(String(item?.status || ''))) return true;
+      return false;
+    });
+
+    return c.json(actionable.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()));
+  } catch (error) {
+    console.log(`Collector marketplace orders error: ${error}`);
+    return c.json({ error: 'Error getting collector marketplace orders' }, 500);
+  }
+});
+
+app.post('/server/collector/marketplace-orders/:orderId/take', async (c) => {
+  try {
+    const auth = await getAuthContext(c);
+    if (auth.error) return auth.error;
+    const { user, userProfile } = auth;
+
+    if (userProfile.type !== 'collector' && userProfile.type !== 'admin') {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    const orderId = c.req.param('orderId');
+    const order = await kv.get(`marketplace:order:${orderId}`);
+    if (!order) return c.json({ error: 'Order not found' }, 404);
+    if (order.fulfillmentType !== 'collector') return c.json({ error: 'Order is not collector delivery type' }, 400);
+    if (order.status !== 'available') return c.json({ error: 'Order no longer available' }, 409);
+
+    const updated = {
+      ...order,
+      status: 'pending',
+      collectorId: user.id,
+      collectorName: userProfile.name || null,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await kv.set(`marketplace:order:${orderId}`, updated);
+    return c.json(updated);
+  } catch (error) {
+    console.log(`Collector take marketplace order error: ${error}`);
+    return c.json({ error: 'Error taking marketplace delivery' }, 500);
+  }
+});
+
+app.put('/server/collector/marketplace-orders/:orderId/status', async (c) => {
+  try {
+    const auth = await getAuthContext(c);
+    if (auth.error) return auth.error;
+    const { user, userProfile } = auth;
+
+    if (userProfile.type !== 'collector' && userProfile.type !== 'admin') {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    const orderId = c.req.param('orderId');
+    const { status } = await c.req.json();
+    const order = await kv.get(`marketplace:order:${orderId}`);
+    if (!order) return c.json({ error: 'Order not found' }, 404);
+    if (order.collectorId !== user.id && userProfile.type !== 'admin') return c.json({ error: 'Order is assigned to another collector' }, 403);
+
+    const allowed = ['in-progress', 'picked-up', 'delivered'];
+    if (!allowed.includes(String(status))) {
+      return c.json({ error: 'Invalid status transition' }, 400);
+    }
+
+    const nextStatus = String(status);
+    const now = new Date().toISOString();
+    const updated: any = {
+      ...order,
+      status: nextStatus,
+      updatedAt: now,
+    };
+
+    if (nextStatus === 'picked-up') {
+      updated.pickupReceipt = {
+        code: `PICK-${orderId.slice(0, 8).toUpperCase()}`,
+        createdAt: now,
+        pointName: order.pointName || updated.items?.[0]?.pointName || null,
+      };
+    }
+
+    if (nextStatus === 'delivered') {
+      updated.deliveryReceipt = {
+        code: `DROP-${orderId.slice(0, 8).toUpperCase()}`,
+        createdAt: now,
+        deliveredTo: order.buyerName || null,
+      };
+    }
+
+    await kv.set(`marketplace:order:${orderId}`, updated);
+    return c.json(updated);
+  } catch (error) {
+    console.log(`Collector update marketplace order status error: ${error}`);
+    return c.json({ error: 'Error updating marketplace delivery status' }, 500);
+  }
+});
+
 // Initialize storage on startup
 initStorage();
 ensureAdminUser();
+ensureMarketplaceSeed();
 
 Deno.serve(app.fetch);

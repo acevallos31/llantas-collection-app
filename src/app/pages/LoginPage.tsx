@@ -23,7 +23,14 @@ export default function LoginPage() {
   const [regPhone, setRegPhone] = useState('');
   const [regEmail, setRegEmail] = useState('');
   const [regPassword, setRegPassword] = useState('');
-  const [userType, setUserType] = useState<'generator' | 'collector'>('generator');
+  const [userType, setUserType] = useState<'generator' | 'collector' | 'cliente'>('generator');
+
+  const resolveHomeRoute = (type?: string) => {
+    if (type === 'admin') return '/admin';
+    if (type === 'collector') return '/collector';
+    if (type === 'cliente') return '/marketplace';
+    return '/home';
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -33,13 +40,7 @@ export default function LoginPage() {
       await signin(loginEmail, loginPassword);
       const currentUser = authAPI.getCurrentUser();
       toast.success('¡Bienvenido de nuevo!');
-      navigate(
-        currentUser?.type === 'admin'
-          ? '/admin'
-          : currentUser?.type === 'collector'
-            ? '/collector'
-            : '/home',
-      );
+      navigate(resolveHomeRoute(currentUser?.type));
     } catch (err: any) {
       toast.error(err.message || 'Error al iniciar sesión');
     }
@@ -59,13 +60,7 @@ export default function LoginPage() {
       });
       const currentUser = authAPI.getCurrentUser();
       toast.success('¡Cuenta creada exitosamente!');
-      navigate(
-        currentUser?.type === 'admin'
-          ? '/admin'
-          : currentUser?.type === 'collector'
-            ? '/collector'
-            : '/home',
-      );
+      navigate(resolveHomeRoute(currentUser?.type));
     } catch (err: any) {
       toast.error(err.message || 'Error al registrarse');
     }
@@ -217,7 +212,7 @@ export default function LoginPage() {
 
                 <div className="space-y-2">
                   <Label>Tipo de Usuario</Label>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <label className={`flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 ${userType === 'generator' ? 'bg-green-50 border-green-500' : ''}`}>
                       <input 
                         type="radio" 
@@ -239,6 +234,17 @@ export default function LoginPage() {
                         disabled={loading}
                       />
                       <span className="text-sm">Recolector</span>
+                    </label>
+                    <label className={`flex items-center gap-2 p-3 border rounded-lg cursor-pointer hover:bg-gray-50 ${userType === 'cliente' ? 'bg-green-50 border-green-500' : ''}`}>
+                      <input 
+                        type="radio" 
+                        name="userType" 
+                        value="cliente"
+                        checked={userType === 'cliente'}
+                        onChange={() => setUserType('cliente')}
+                        disabled={loading}
+                      />
+                      <span className="text-sm">Cliente</span>
                     </label>
                   </div>
                 </div>

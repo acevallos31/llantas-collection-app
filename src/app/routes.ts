@@ -13,6 +13,9 @@ import AdminPointsPage from './pages/AdminPointsPage.tsx';
 import AdminDashboardPage from './pages/AdminDashboardPage.tsx';
 import AdminRewardsPricingPage from './pages/AdminRewardsPricingPage.tsx';
 import AdminPaymentsPage from './pages/AdminPaymentsPage.tsx';
+import MarketplacePage from './pages/MarketplacePage.tsx';
+import AdminMarketplacePage from './pages/AdminMarketplacePage.tsx';
+import CollectorMarketplacePage from './pages/CollectorMarketplacePage.tsx';
 
 export const router = createBrowserRouter([
   {
@@ -70,6 +73,18 @@ export const router = createBrowserRouter([
       {
         path: 'admin-payments',
         Component: AdminPaymentsPage,
+      },
+      {
+        path: 'marketplace',
+        Component: MarketplacePage,
+      },
+      {
+        path: 'collector-marketplace',
+        Component: CollectorMarketplacePage,
+      },
+      {
+        path: 'admin-marketplace',
+        Component: AdminMarketplacePage,
       },
     ],
   },

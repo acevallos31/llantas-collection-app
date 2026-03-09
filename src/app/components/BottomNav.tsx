@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router';
-import { Home, History, Gift, Settings, Truck, LayoutDashboard, Users } from 'lucide-react';
+import { Home, History, Gift, Settings, Truck, LayoutDashboard, Users, Store, User } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function BottomNav() {
@@ -8,18 +8,26 @@ export default function BottomNav() {
   const { user } = useAuth();
   const isCollector = user?.type === 'collector';
   const isAdmin = user?.type === 'admin';
+  const isClient = user?.type === 'cliente';
 
   const navItems = isAdmin
     ? [
         { path: '/admin', icon: LayoutDashboard, label: 'Panel' },
         { path: '/admin-points', icon: Users, label: 'Centros' },
+        { path: '/admin-marketplace', icon: Store, label: 'Market' },
         { path: '/settings', icon: Settings, label: 'Ajustes' },
       ]
     : isCollector
     ? [
         { path: '/collector', icon: Truck, label: 'Recolector' },
+        { path: '/collector-marketplace', icon: Store, label: 'Entregas' },
         { path: '/history', icon: History, label: 'Historial' },
-        { path: '/rewards', icon: Gift, label: 'Premios' },
+        { path: '/settings', icon: Settings, label: 'Ajustes' },
+      ]
+    : isClient
+    ? [
+        { path: '/marketplace', icon: Store, label: 'Tienda' },
+        { path: '/profile', icon: User, label: 'Perfil' },
         { path: '/settings', icon: Settings, label: 'Ajustes' },
       ]
     : [

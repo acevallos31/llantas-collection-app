@@ -5,11 +5,80 @@ export interface User {
   name: string;
   email: string;
   phone: string;
-  type: 'generator' | 'collector' | 'admin';
+  type: 'generator' | 'collector' | 'admin' | 'cliente';
   points: number;
   level: string;
   avatar?: string;
   address?: string;
+}
+
+export interface MarketplaceProduct {
+  id: string;
+  name: string;
+  description?: string;
+  tireType: string;
+  tireBrand?: string;
+  tireModel?: string;
+  tireSize?: string;
+  numeration?: string;
+  lotSize?: number;
+  photoUrl?: string;
+  photoUrls?: string[];
+  tireCondition?: string;
+  price: number;
+  stock: number;
+  sellerType: 'collector' | 'point' | 'mixed';
+  marketType?: 'resale' | 'recycling';
+  collectorId?: string | null;
+  collectorName?: string | null;
+  pointId?: string | null;
+  pointName?: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface MarketplaceOrder {
+  id: string;
+  productId: string;
+  productName: string;
+  buyerId: string;
+  buyerName?: string;
+  items?: Array<{
+    productId: string;
+    productName: string;
+    tireType?: string;
+    tireSize?: string;
+    tireCondition?: string;
+    quantity: number;
+    unitPrice: number;
+    subtotal: number;
+    pointId?: string | null;
+    pointName?: string | null;
+  }>;
+  quantity: number;
+  unitPrice: number;
+  totalAmount: number;
+  status: 'available' | 'pending' | 'in-progress' | 'picked-up' | 'confirmed' | 'delivered' | 'cancelled';
+  fulfillmentType: 'collector' | 'point';
+  collectorId?: string | null;
+  collectorName?: string | null;
+  preferredCollectorId?: string | null;
+  pointId?: string | null;
+  pointName?: string | null;
+  pickupReceipt?: {
+    code: string;
+    createdAt: string;
+    pointName?: string | null;
+  };
+  deliveryReceipt?: {
+    code: string;
+    createdAt: string;
+    deliveredTo?: string | null;
+  };
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 export interface Collection {

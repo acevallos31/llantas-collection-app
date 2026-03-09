@@ -12,7 +12,7 @@ interface AuthContextType {
     password: string;
     name: string;
     phone: string;
-    type: 'generator' | 'collector';
+    type: 'generator' | 'collector' | 'cliente';
     address?: string;
   }) => Promise<void>;
   signout: () => Promise<void>;
@@ -95,7 +95,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     password: string;
     name: string;
     phone: string;
-    type: 'generator' | 'collector';
+    type: 'generator' | 'collector' | 'cliente';
     address?: string;
   }) => {
     try {

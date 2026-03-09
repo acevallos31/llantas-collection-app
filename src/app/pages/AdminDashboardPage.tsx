@@ -24,6 +24,7 @@ import {
   Gauge,
   Users,
   Gift,
+  Store,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL, getAuthHeaders, authAPI } from '../services/api.js';
@@ -63,7 +64,7 @@ interface AnalyticsReport {
     from: string | null;
     to: string | null;
     period: 'daily' | 'weekly' | 'monthly';
-    userType: 'all' | 'generator' | 'collector' | 'admin' | 'guest';
+    userType: 'all' | 'generator' | 'collector' | 'admin' | 'cliente' | 'guest';
   };
   summary: {
     totalVisits: number;
@@ -84,7 +85,7 @@ interface AnalyticsCampaign {
   startsAt: string;
   endsAt: string | null;
   period: 'daily' | 'weekly' | 'monthly';
-  userType: 'all' | 'generator' | 'collector' | 'admin' | 'guest';
+  userType: 'all' | 'generator' | 'collector' | 'admin' | 'cliente' | 'guest';
   status: 'scheduled' | 'active';
 }
 
@@ -132,7 +133,7 @@ interface AdminUser {
   email: string;
   phone?: string;
   address?: string;
-  type: 'generator' | 'collector' | 'admin';
+  type: 'generator' | 'collector' | 'admin' | 'cliente';
   points?: number;
   level?: string;
 }
@@ -143,7 +144,7 @@ const defaultCreateUserForm = {
   password: '',
   phone: '',
   address: '',
-  type: 'generator' as 'generator' | 'collector' | 'admin',
+  type: 'generator' as 'generator' | 'collector' | 'admin' | 'cliente',
 };
 
 // ...existing code...
@@ -186,7 +187,7 @@ export default function AdminDashboardPage() {
     from: '',
     to: '',
     period: 'daily' as 'daily' | 'weekly' | 'monthly',
-    userType: 'all' as 'all' | 'generator' | 'collector' | 'admin' | 'guest',
+    userType: 'all' as 'all' | 'generator' | 'collector' | 'admin' | 'cliente' | 'guest',
   });
   const [indicatorFilters, setIndicatorFilters] = useState({
     visits: true,
@@ -228,7 +229,7 @@ export default function AdminDashboardPage() {
     startsAt: '',
     endsAt: '',
     period: 'daily' as 'daily' | 'weekly' | 'monthly',
-    userType: 'all' as 'all' | 'generator' | 'collector' | 'admin' | 'guest',
+    userType: 'all' as 'all' | 'generator' | 'collector' | 'admin' | 'cliente' | 'guest',
   });
   const [analyticsBusy, setAnalyticsBusy] = useState(false);
   const [creatingUser, setCreatingUser] = useState(false);
@@ -239,7 +240,7 @@ export default function AdminDashboardPage() {
     email: '',
     phone: '',
     address: '',
-    type: 'generator' as 'generator' | 'collector' | 'admin',
+    type: 'generator' as 'generator' | 'collector' | 'admin' | 'cliente',
   });
 
   const isAdmin = user?.type === 'admin';
@@ -928,7 +929,7 @@ export default function AdminDashboardPage() {
     }));
   };
 
-  const handleChangeRole = async (targetUserId: string, role: 'generator' | 'collector' | 'admin') => {
+  const handleChangeRole = async (targetUserId: string, role: 'generator' | 'collector' | 'admin' | 'cliente') => {
     try {
       setUpdatingUserId(targetUserId);
       await adminAPI.updateUserRole(targetUserId, role);
@@ -1118,6 +1119,7 @@ export default function AdminDashboardPage() {
                       <Button size="sm" variant={analyticsFilters.userType === 'generator' ? 'default' : 'outline'} onClick={() => setAnalyticsFilters({ ...analyticsFilters, userType: 'generator' })}>Generador</Button>
                       <Button size="sm" variant={analyticsFilters.userType === 'collector' ? 'default' : 'outline'} onClick={() => setAnalyticsFilters({ ...analyticsFilters, userType: 'collector' })}>Recolector</Button>
                       <Button size="sm" variant={analyticsFilters.userType === 'admin' ? 'default' : 'outline'} onClick={() => setAnalyticsFilters({ ...analyticsFilters, userType: 'admin' })}>Admin</Button>
+                      <Button size="sm" variant={analyticsFilters.userType === 'cliente' ? 'default' : 'outline'} onClick={() => setAnalyticsFilters({ ...analyticsFilters, userType: 'cliente' })}>Cliente</Button>
                       <Button size="sm" variant={analyticsFilters.userType === 'guest' ? 'default' : 'outline'} onClick={() => setAnalyticsFilters({ ...analyticsFilters, userType: 'guest' })}>Invitado</Button>
                     </div>
 
@@ -1228,6 +1230,7 @@ export default function AdminDashboardPage() {
                           <Button size="sm" variant={campaignForm.userType === 'generator' ? 'default' : 'outline'} onClick={() => setCampaignForm({ ...campaignForm, userType: 'generator' })}>Generador</Button>
                           <Button size="sm" variant={campaignForm.userType === 'collector' ? 'default' : 'outline'} onClick={() => setCampaignForm({ ...campaignForm, userType: 'collector' })}>Recolector</Button>
                           <Button size="sm" variant={campaignForm.userType === 'admin' ? 'default' : 'outline'} onClick={() => setCampaignForm({ ...campaignForm, userType: 'admin' })}>Admin</Button>
+                          <Button size="sm" variant={campaignForm.userType === 'cliente' ? 'default' : 'outline'} onClick={() => setCampaignForm({ ...campaignForm, userType: 'cliente' })}>Cliente</Button>
                           <Button size="sm" variant={campaignForm.userType === 'guest' ? 'default' : 'outline'} onClick={() => setCampaignForm({ ...campaignForm, userType: 'guest' })}>Invitado</Button>
                         </div>
 
@@ -1591,6 +1594,13 @@ export default function AdminDashboardPage() {
                   >
                     Admin
                   </Button>
+                  <Button
+                    size="sm"
+                    variant={createUserForm.type === 'cliente' ? 'default' : 'outline'}
+                    onClick={() => setCreateUserForm({ ...createUserForm, type: 'cliente' })}
+                  >
+                    Cliente
+                  </Button>
                 </div>
                 <Button onClick={handleCreateUser} disabled={creatingUser}>
                   {creatingUser ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Crear usuario'}
@@ -1646,6 +1656,13 @@ export default function AdminDashboardPage() {
                             onClick={() => setEditUserForm({ ...editUserForm, type: 'admin' })}
                           >
                             Admin
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={editUserForm.type === 'cliente' ? 'default' : 'outline'}
+                            onClick={() => setEditUserForm({ ...editUserForm, type: 'cliente' })}
+                          >
+                            Cliente
                           </Button>
                         </div>
 
@@ -1718,6 +1735,14 @@ export default function AdminDashboardPage() {
                             onClick={() => handleChangeRole(item.id, 'admin')}
                           >
                             Admin
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={updatingUserId === item.id}
+                            onClick={() => handleChangeRole(item.id, 'cliente')}
+                          >
+                            Cli
                           </Button>
                           <Button
                             size="sm"
@@ -2201,6 +2226,12 @@ export default function AdminDashboardPage() {
                 <h3 className="font-semibold flex items-center gap-2 text-green-800">💰 Gestión de Pagos</h3>
                 <p className="text-sm text-gray-700 mt-1">Administra los pagos a recolectores y generadores, configura tarifas y procesa transacciones pendientes.</p>
                 <Button className="mt-3 bg-green-600 hover:bg-green-700" onClick={() => navigate('/admin-payments')}>Abrir módulo de pagos</Button>
+              </Card>
+
+              <Card className="p-4 bg-gradient-to-r from-blue-50 to-cyan-50 border-blue-200">
+                <h3 className="font-semibold flex items-center gap-2 text-blue-800"><Store className="w-4 h-4" /> Marketplace de Llantas</h3>
+                <p className="text-sm text-gray-700 mt-1">Publica productos, controla inventario y gestiona ventas realizadas por recolectores o centros de acopio.</p>
+                <Button className="mt-3 bg-blue-600 hover:bg-blue-700" onClick={() => navigate('/admin-marketplace')}>Abrir marketplace admin</Button>
               </Card>
             </TabsContent>
           </Tabs>
