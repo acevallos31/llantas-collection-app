@@ -1,5 +1,6 @@
 import { createBrowserRouter } from 'react-router';
 import { ProtectedLayout } from './components/ProtectedLayout.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import LoginPage from './pages/LoginPage.tsx';
 import HomePage from './pages/HomePage.tsx';
 import ProfilePage from './pages/ProfilePage.tsx';
@@ -21,10 +22,12 @@ export const router = createBrowserRouter([
   {
     path: '/',
     Component: LoginPage,
+    ErrorBoundary,
   },
   {
     path: '/',
     Component: ProtectedLayout,
+    ErrorBoundary,
     children: [
       {
         path: 'home',

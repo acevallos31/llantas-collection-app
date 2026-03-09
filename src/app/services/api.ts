@@ -81,9 +81,9 @@ const handleUnauthorizedResponse = (response: Response) => {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     
-    // Redirect to login if not already there
-    if (!window.location.pathname.includes('/login')) {
-      window.location.href = '/login';
+    // Redirect to root login page if not already there
+    if (window.location.pathname !== '/') {
+      window.location.href = '/';
     }
   }
 };
