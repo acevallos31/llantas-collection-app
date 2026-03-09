@@ -365,17 +365,38 @@ export default function AdminPointsPage() {
                   <div className="flex-1">
                     {editingId === point.id ? (
                       <div className="space-y-2">
-                        <Input value={editForm.name} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, name: e.target.value })} placeholder="Nombre" />
-                        <Textarea value={editForm.address} onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setEditForm({ ...editForm, address: e.target.value })} rows={2} placeholder="Dirección" />
-                        <div className="grid grid-cols-2 gap-2">
-                          <Input value={editForm.lat} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, lat: e.target.value })} placeholder="Latitud" />
-                          <Input value={editForm.lng} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, lng: e.target.value })} placeholder="Longitud" />
+                        <div className="space-y-1">
+                          <Label className="text-xs">Nombre</Label>
+                          <Input value={editForm.name} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, name: e.target.value })} placeholder="Nombre" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Dirección</Label>
+                          <Textarea value={editForm.address} onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setEditForm({ ...editForm, address: e.target.value })} rows={2} placeholder="Dirección" />
                         </div>
                         <div className="grid grid-cols-2 gap-2">
-                          <Input type="number" value={editForm.capacity} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, capacity: e.target.value })} placeholder="Capacidad" />
-                          <Input value={editForm.phone} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, phone: e.target.value })} placeholder="Telefono" />
+                          <div className="space-y-1">
+                            <Label className="text-xs">Latitud</Label>
+                            <Input value={editForm.lat} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, lat: e.target.value })} placeholder="Latitud" />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Longitud</Label>
+                            <Input value={editForm.lng} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, lng: e.target.value })} placeholder="Longitud" />
+                          </div>
                         </div>
-                        <Input value={editForm.hours} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, hours: e.target.value })} placeholder="Horario" />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Capacidad</Label>
+                            <Input type="number" value={editForm.capacity} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, capacity: e.target.value })} placeholder="Capacidad" />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Teléfono</Label>
+                            <Input value={editForm.phone} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, phone: e.target.value })} placeholder="Teléfono" />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs">Horario</Label>
+                          <Input value={editForm.hours} onChange={(e: ChangeEvent<HTMLInputElement>) => setEditForm({ ...editForm, hours: e.target.value })} placeholder="Horario" />
+                        </div>
                       </div>
                     ) : (
                       <>
