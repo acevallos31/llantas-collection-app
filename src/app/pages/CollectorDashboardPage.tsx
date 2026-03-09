@@ -1106,7 +1106,7 @@ export default function CollectorDashboardPage() {
                       disabled={updatingId === collection.id}
                     >
                       {updatingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4 mr-2" />}
-                      Liberar
+                      Cancelar
                     </Button>
                   )}
 
@@ -1137,11 +1137,11 @@ export default function CollectorDashboardPage() {
       <AlertDialog open={Boolean(cancelTarget)} onOpenChange={(open) => { if (!open) setCancelTarget(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Cancelar toma de recoleccion</AlertDialogTitle>
+            <AlertDialogTitle>Cancelar recoleccion</AlertDialogTitle>
             <AlertDialogDescription>
               {cancelTarget
-                ? `Vas a liberar la recoleccion de ${cancelTarget.tireCount} llantas (${cancelTarget.tireType}). Esta accion la devolvera a estado "Disponible" para que otro recolector pueda tomarla.`
-                : 'Confirma si deseas liberar esta recoleccion.'}
+                ? `Vas a cancelar la recoleccion de ${cancelTarget.tireCount} llantas (${cancelTarget.tireType}). Esta accion la devolvera a estado "Disponible" para que otro recolector pueda tomarla.`
+                : 'Confirma si deseas cancelar esta recoleccion.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1159,7 +1159,7 @@ export default function CollectorDashboardPage() {
               }}
               disabled={Boolean(cancelTarget?.id && updatingId === cancelTarget.id)}
             >
-Confirmar y liberar
+Confirmar y cancelar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

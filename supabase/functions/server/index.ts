@@ -77,6 +77,41 @@ const calculateCollectorBonusPointsForCollection = (collection: any, collectorBo
   }, 0);
 };
 
+const calculateGeneratorCompensationForCollection = (
+  collection: any,
+  generatorRateMap: Map<string, { pointsPerTire: number; cashPerTire: number; minPointsOnCash: number }>,
+  paymentPreference: string,
+  defaults: { pointsPerTire: number; cashPerTire: number; minPointsOnCash: number },
+) => {
+  const normalizedItems = normalizeCollectionItems(collection);
+  const preference = paymentPreference === 'cash' ? 'cash' : 'points';
+
+  let cashAmount = 0;
+  let pointsAwarded = 0;
+
+  for (const item of normalizedItems) {
+    const key = `${normalizeLabel(item.tireType)}|${normalizeLabel(item.tireCondition)}`;
+    const rate = generatorRateMap.get(key);
+
+    const pointsPerTire = Number(rate?.pointsPerTire ?? defaults.pointsPerTire);
+    const cashPerTire = Number(rate?.cashPerTire ?? defaults.cashPerTire);
+    const minPointsOnCash = Number(rate?.minPointsOnCash ?? defaults.minPointsOnCash);
+    const tireCount = Number(item.tireCount || 0);
+
+    if (preference === 'cash') {
+      cashAmount += cashPerTire * tireCount;
+      pointsAwarded += minPointsOnCash * tireCount;
+    } else {
+      pointsAwarded += pointsPerTire * tireCount;
+    }
+  }
+
+  return {
+    cashAmount: Number(cashAmount.toFixed(2)),
+    pointsAwarded,
+  };
+};
+
 const withPointStatus = (point: any) => {
   const currentLoad = Number(point.currentLoad || 0);
   const capacity = Number(point.capacity || 0);
@@ -1969,6 +2004,39 @@ app.put("/server/collections/:collectionId", async (c) => {
     }
 
     updatedCollection.traceability = traceability;
+
+    // Award generator points when collector starts the pickup process.
+    const collectorStartedPickup = isCollector
+      && updates.status === 'in-progress'
+      && currentCollection.status !== 'in-progress';
+
+    if (collectorStartedPickup && !currentCollection.generatorPointsCreditedAtPickup) {
+      const collectionOwnerProfile = await kv.get(`user:${updatedCollection.userId}`);
+      const ownerStats = await kv.get(`stats:${updatedCollection.userId}`);
+
+      if (collectionOwnerProfile && ownerStats) {
+        collectionOwnerProfile.points = Number(collectionOwnerProfile.points || 0) + Number(updatedCollection.points || 0);
+
+        if (collectionOwnerProfile.points >= 1000) {
+          collectionOwnerProfile.level = 'Eco Master';
+        } else if (collectionOwnerProfile.points >= 500) {
+          collectionOwnerProfile.level = 'Eco Champion';
+        } else if (collectionOwnerProfile.points >= 200) {
+          collectionOwnerProfile.level = 'Eco Warrior';
+        } else if (collectionOwnerProfile.points >= 50) {
+          collectionOwnerProfile.level = 'Eco Guardian';
+        } else {
+          collectionOwnerProfile.level = 'Eco Novato';
+        }
+
+        await kv.set(`user:${updatedCollection.userId}`, collectionOwnerProfile);
+
+        ownerStats.totalPoints = collectionOwnerProfile.points;
+        await kv.set(`stats:${updatedCollection.userId}`, ownerStats);
+      }
+
+      updatedCollection.generatorPointsCreditedAtPickup = new Date().toISOString();
+    }
     
     // If collection is being completed, update user points and stats
     if (updates.status === 'completed' && currentCollection.status !== 'completed') {
@@ -2014,38 +2082,48 @@ app.put("/server/collections/:collectionId", async (c) => {
         console.log(`[Collection Complete] Calculated compensation: ${collectorFreight} HNL, ${collectorBonusPoints} pts`);
       }
       
-      const collectionOwnerProfile = await kv.get(`user:${updatedCollection.userId}`);
       const stats = await kv.get(`stats:${updatedCollection.userId}`);
       
-      if (collectionOwnerProfile && stats) {
-        // Update user points
-        collectionOwnerProfile.points += updatedCollection.points;
-        
-        // Update level based on points
-        if (collectionOwnerProfile.points >= 1000) {
-          collectionOwnerProfile.level = 'Eco Master';
-        } else if (collectionOwnerProfile.points >= 500) {
-          collectionOwnerProfile.level = 'Eco Champion';
-        } else if (collectionOwnerProfile.points >= 200) {
-          collectionOwnerProfile.level = 'Eco Warrior';
-        } else if (collectionOwnerProfile.points >= 50) {
-          collectionOwnerProfile.level = 'Eco Guardian';
-        } else {
-          collectionOwnerProfile.level = 'Eco Novato';
-        }
-        
-        await kv.set(`user:${updatedCollection.userId}`, collectionOwnerProfile);
-        
-        // Update stats
+      if (stats) {
+        // Update generator stats on completion without re-crediting points.
         stats.totalCollections += 1;
         stats.totalTires += updatedCollection.tireCount;
-        stats.totalPoints = collectionOwnerProfile.points;
         stats.co2Saved += updatedCollection.tireCount * 3.25; // kg per tire
         stats.treesEquivalent = Math.floor(stats.co2Saved / 20);
         stats.recycledWeight += updatedCollection.tireCount * 5; // kg per tire
         
         await kv.set(`stats:${updatedCollection.userId}`, stats);
       }
+
+      // Calculate generator compensation from rates per item (type + condition).
+      const { data: generatorRatesData } = await supabase
+        .from('generator_tire_rates')
+        .select('tire_type, tire_condition, points_per_tire, cash_per_tire, min_points_on_cash')
+        .eq('is_active', true);
+
+      const generatorRateMap = new Map<string, { pointsPerTire: number; cashPerTire: number; minPointsOnCash: number }>();
+      for (const rate of generatorRatesData || []) {
+        const key = `${normalizeLabel(rate.tire_type)}|${normalizeLabel(rate.tire_condition)}`;
+        generatorRateMap.set(key, {
+          pointsPerTire: Number(rate.points_per_tire || 0),
+          cashPerTire: Number(rate.cash_per_tire || 0),
+          minPointsOnCash: Number(rate.min_points_on_cash || 0),
+        });
+      }
+
+      const generatorCompensation = calculateGeneratorCompensationForCollection(
+        updatedCollection,
+        generatorRateMap,
+        updatedCollection.generatorPaymentPreference || 'points',
+        {
+          pointsPerTire: 100,
+          cashPerTire: 5,
+          minPointsOnCash: 5,
+        },
+      );
+
+      updatedCollection.generatorPaymentAmount = generatorCompensation.cashAmount;
+      updatedCollection.generatorPointsAwarded = generatorCompensation.pointsAwarded;
       
       // Update collector points if collection was completed by a collector
       if (updatedCollection.collectorId && updatedCollection.collectorBonusPoints > 0) {

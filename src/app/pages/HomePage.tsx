@@ -56,6 +56,7 @@ export default function HomePage() {
     recycledWeight: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [peerConnection, setPeerConnection] = useState<RTCPeerConnection | null>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -383,6 +384,30 @@ export default function HomePage() {
     }
   };
 
+  const cancelCollection = async (collection: Collection) => {
+    const normalizedStatus = String(collection.status || '').toLowerCase();
+    const canCancel = normalizedStatus === 'available' || normalizedStatus === 'pending';
+
+    if (!canCancel) {
+      toast.error('Solo puedes cancelar recolecciones en estado Disponible o Pendiente');
+      return;
+    }
+
+    const confirmed = window.confirm('Quieres cancelar esta recoleccion?');
+    if (!confirmed) return;
+
+    try {
+      setCancellingId(collection.id);
+      await collectionsAPI.update(collection.id, { status: 'cancelled' });
+      toast.success('Recoleccion cancelada correctamente');
+      await loadData();
+    } catch (error: any) {
+      toast.error(error.message || 'No se pudo cancelar la recoleccion');
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
   if (!user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -602,11 +627,14 @@ export default function HomePage() {
                             <h3 className="font-semibold text-sm">{collection.tireType}</h3>
                             <Badge variant={
                               collection.status === 'completed' ? 'default' :
+                              collection.status === 'cancelled' ? 'destructive' :
                               collection.status === 'in-progress' ? 'secondary' :
                               'outline'
                             } className="text-xs">
                               {collection.status === 'completed' ? 'Completada' :
+                               collection.status === 'cancelled' ? 'Cancelada' :
                                collection.status === 'in-progress' ? 'En proceso' :
+                               collection.status === 'available' ? 'Disponible' :
                                'Pendiente'}
                             </Badge>
                           </div>
@@ -620,6 +648,33 @@ export default function HomePage() {
                             <span className="text-green-600 font-semibold">
                               +{collection.points} puntos
                             </span>
+                          </div>
+
+                          <div className="flex gap-2 mt-3">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                navigate(`/history/${collection.id}`);
+                              }}
+                            >
+                              Detalle
+                            </Button>
+
+                            {isGenerator && (collection.status === 'available' || collection.status === 'pending') && (
+                              <Button
+                                size="sm"
+                                className="bg-red-600 hover:bg-red-700"
+                                disabled={cancellingId === collection.id}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  void cancelCollection(collection);
+                                }}
+                              >
+                                {cancellingId === collection.id ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Cancelar'}
+                              </Button>
+                            )}
                           </div>
                         </div>
                       </div>
