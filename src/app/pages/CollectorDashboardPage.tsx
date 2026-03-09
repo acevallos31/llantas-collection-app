@@ -406,7 +406,8 @@ export default function CollectorDashboardPage() {
       const all = await collectionsAPI.getAll();
       const actionable = all.filter(
         (item: Collection) => {
-          const isAvailable = item.status === 'available' || (item.status === 'pending' && !item.collectorId);
+          const hasCollectorAssigned = Boolean(item.collectorId);
+          const isAvailable = !hasCollectorAssigned && (item.status === 'available' || item.status === 'pending');
           const isMine = item.collectorId === user?.id;
           const isMyQueue = (item.status === 'pending' || item.status === 'in-progress') && isMine;
           return isAvailable || isMyQueue;
@@ -613,8 +614,10 @@ export default function CollectorDashboardPage() {
                 const manuallyAddedRouteItemsFromBoard: RouteSuggestion[] = collections
                   .filter((collection) => {
                     const normalizedStatus = normalizeCollectionStatus(collection);
+                    const hasCollectorAssigned = Boolean(collection.collectorId);
                     return addedCollectionIds.has(collection.id)
                       && normalizedStatus === 'available'
+                      && !hasCollectorAssigned
                       && !baseRouteItems.some((base) => base.collectionId === collection.id)
                       && !manuallyAddedRouteItemsFromSuggestions.some((item) => item.collectionId === collection.id);
                   })
