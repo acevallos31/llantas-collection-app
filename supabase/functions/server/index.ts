@@ -2011,6 +2011,52 @@ app.put("/server/collections/:collectionId", async (c) => {
         await kv.set(`stats:${updatedCollection.userId}`, stats);
       }
       
+      // Update collector points if collection was completed by a collector
+      if (updatedCollection.collectorId && updatedCollection.collectorBonusPoints > 0) {
+        const collectorProfile = await kv.get(`user:${updatedCollection.collectorId}`);
+        
+        if (collectorProfile) {
+          // Add collector bonus points
+          collectorProfile.points = (collectorProfile.points || 0) + updatedCollection.collectorBonusPoints;
+          
+          // Update collector level based on points
+          if (collectorProfile.points >= 1000) {
+            collectorProfile.level = 'Eco Master';
+          } else if (collectorProfile.points >= 500) {
+            collectorProfile.level = 'Eco Champion';
+          } else if (collectorProfile.points >= 200) {
+            collectorProfile.level = 'Eco Warrior';
+          } else if (collectorProfile.points >= 50) {
+            collectorProfile.level = 'Eco Guardian';
+          } else {
+            collectorProfile.level = 'Eco Novato';
+          }
+          
+          await kv.set(`user:${updatedCollection.collectorId}`, collectorProfile);
+          
+          // Update collector stats
+          const collectorStats = await kv.get(`stats:${updatedCollection.collectorId}`) || {
+            totalCollections: 0,
+            totalTires: 0,
+            totalPoints: 0,
+            co2Saved: 0,
+            treesEquivalent: 0,
+            recycledWeight: 0,
+          };
+          
+          collectorStats.totalCollections += 1;
+          collectorStats.totalTires += updatedCollection.tireCount;
+          collectorStats.totalPoints = collectorProfile.points;
+          collectorStats.co2Saved += updatedCollection.tireCount * 3.25;
+          collectorStats.treesEquivalent = Math.floor(collectorStats.co2Saved / 20);
+          collectorStats.recycledWeight += updatedCollection.tireCount * 5;
+          
+          await kv.set(`stats:${updatedCollection.collectorId}`, collectorStats);
+          
+          console.log(`[Collection Complete] Collector ${updatedCollection.collectorId} awarded ${updatedCollection.collectorBonusPoints} points`);
+        }
+      }
+      
       const destinationType = normalizeDestinationType(updates.destinationType);
       const certificateId = `CERT-${collectionId.slice(0, 8).toUpperCase()}`;
 
