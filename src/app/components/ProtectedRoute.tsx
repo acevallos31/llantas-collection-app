@@ -2,8 +2,17 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { Loader2 } from 'lucide-react';
+import type { ErrorInfo, ReactNode } from 'react';
 
-export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+interface Props {
+  children: ReactNode;
+}
+
+interface State {
+  hasError: boolean;
+}
+
+export const ProtectedRoute: React.FC<Props> = ({ children }) => {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
 

@@ -264,6 +264,20 @@ export default function HomePage() {
           method: 'GET',
           headers: getAuthHeaders(true),
         });
+
+        // Stop polling if forbidden (endpoint not available or user not authorized)
+        if (response.status === 403) {
+          if (requestPollRef.current) {
+            window.clearInterval(requestPollRef.current);
+            requestPollRef.current = null;
+          }
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
         const data = await response.json();
         const requestStatus = data?.request?.status;
 
