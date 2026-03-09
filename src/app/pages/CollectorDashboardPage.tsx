@@ -101,6 +101,7 @@ export default function CollectorDashboardPage() {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const requestPollRef = useRef<number | null>(null);
   const answerPollRef = useRef<number | null>(null);
+  const lastAutoRefreshRef = useRef(0);
 
   const isCollector = user?.type === 'collector';
 
@@ -113,23 +114,24 @@ export default function CollectorDashboardPage() {
   useEffect(() => {
     if (!isCollector) return;
 
-    const intervalId = window.setInterval(() => {
-      void loadCollections();
-      void loadRouteSuggestions();
-    }, 15000);
+    const triggerRefresh = () => {
+      if (document.visibilityState !== 'visible') return;
 
-    const handleFocus = () => {
+      const now = Date.now();
+      const refreshCooldownMs = 30000;
+      if (now - lastAutoRefreshRef.current < refreshCooldownMs) return;
+
+      lastAutoRefreshRef.current = now;
       void loadCollections();
       void loadRouteSuggestions();
     };
 
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleFocus);
+    window.addEventListener('focus', triggerRefresh);
+    document.addEventListener('visibilitychange', triggerRefresh);
 
     return () => {
-      window.clearInterval(intervalId);
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleFocus);
+      window.removeEventListener('focus', triggerRefresh);
+      document.removeEventListener('visibilitychange', triggerRefresh);
     };
   }, [isCollector]);
 
