@@ -267,9 +267,16 @@ const getAuthContext = async (c: any) => {
   return { user, userProfile };
 };
 
+let marketplaceSeedPromise: Promise<void> | null = null;
+
 const ensureMarketplaceSeed = async () => {
-  const existing = await kv.getByPrefix('marketplace:product:');
-  if (existing.length > 0) return;
+  if (marketplaceSeedPromise) {
+    return marketplaceSeedPromise;
+  }
+
+  marketplaceSeedPromise = (async () => {
+    const existing = await kv.getByPrefix('marketplace:product:');
+    if (existing.length > 0) return;
 
   const pointList = await kv.getByPrefix('point:');
   const collectorList = (await kv.getByPrefix('user:')).filter((user: any) => user?.type === 'collector');
@@ -376,8 +383,8 @@ const ensureMarketplaceSeed = async () => {
     photo: MARKETPLACE_PHOTOS.reciclaje[0],
   });
 
-  // Guardar todos los productos
-  for (let idx = 0; idx < demoProducts.length; idx += 1) {
+    // Guardar todos los productos
+    for (let idx = 0; idx < demoProducts.length; idx += 1) {
     const seed = demoProducts[idx];
     const productId = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -409,39 +416,45 @@ const ensureMarketplaceSeed = async () => {
       createdAt: now,
       updatedAt: now,
     };
-    await kv.set(`marketplace:product:${productId}`, payload);
+      await kv.set(`marketplace:product:${productId}`, payload);
 
     // Actualizar inventario del centro si el producto está asignado a un centro
-    if (payload.pointId && payload.marketType === 'resale') {
-      const inventoryId = crypto.randomUUID();
-      const inventoryKey = `inventory:${payload.pointId}:${inventoryId}`;
-      const inventoryPayload = {
-        id: inventoryId,
-        pointId: payload.pointId,
-        pointName: payload.pointName,
-        tireType: payload.tireType,
-        tireCondition: payload.tireCondition,
-        tireCount: payload.stock,
-        tireSize: payload.tireSize,
-        notes: `Producto marketplace: ${payload.name}`,
-        marketplace: true,
-        marketplaceProductId: productId,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await kv.set(inventoryKey, inventoryPayload);
+      if (payload.pointId && payload.marketType === 'resale') {
+        const inventoryId = crypto.randomUUID();
+        const inventoryKey = `inventory:${payload.pointId}:${inventoryId}`;
+        const inventoryPayload = {
+          id: inventoryId,
+          pointId: payload.pointId,
+          pointName: payload.pointName,
+          tireType: payload.tireType,
+          tireCondition: payload.tireCondition,
+          tireCount: payload.stock,
+          tireSize: payload.tireSize,
+          notes: `Producto marketplace: ${payload.name}`,
+          marketplace: true,
+          marketplaceProductId: productId,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await kv.set(inventoryKey, inventoryPayload);
 
       // Actualizar carga del centro
-      const currentPoint = await kv.get(`point:${payload.pointId}`);
-      if (currentPoint) {
-        await kv.set(`point:${payload.pointId}`, {
-          ...currentPoint,
-          currentLoad: Number(currentPoint.currentLoad || 0) + Number(payload.stock || 0),
-          updatedAt: now,
-        });
+        const currentPoint = await kv.get(`point:${payload.pointId}`);
+        if (currentPoint) {
+          await kv.set(`point:${payload.pointId}`, {
+            ...currentPoint,
+            currentLoad: Number(currentPoint.currentLoad || 0) + Number(payload.stock || 0),
+            updatedAt: now,
+          });
+        }
       }
     }
-  }
+  })().catch((error) => {
+    marketplaceSeedPromise = null;
+    throw error;
+  });
+
+  return marketplaceSeedPromise;
 };
 
 const repairMojibake = (value: unknown) => {
@@ -655,6 +668,14 @@ app.use(
   }),
 );
 
+app.onError((error, c) => {
+  console.log(`Unhandled server error: ${error}`);
+  c.header('Access-Control-Allow-Origin', '*');
+  c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  c.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  return c.json({ error: 'Internal server error' }, 500);
+});
+
 // Health check endpoint
 app.get("/server/health", (c) => {
   return c.json({ status: "ok" });
@@ -671,7 +692,20 @@ const getAnalyticsOverview = async () => {
     .single();
 
   if (error || !data) {
-    throw new Error(error?.message || 'analytics_overview row is missing');
+    console.log(`Analytics overview fallback: ${error?.message || 'missing row'}`);
+    return {
+      totalVisits: 0,
+      totalSessionDurationMs: 0,
+      sessionCount: 0,
+      totalAppLoadTimeMs: 0,
+      appLoadSampleCount: 0,
+      activeSessions: 0,
+      concurrentSessions: 0,
+      peakConcurrentSessions: 0,
+      averageSessionDurationMs: 0,
+      averageAppLoadTimeMs: 0,
+      updatedAt: null,
+    };
   }
 
   const totalVisits = Number(data?.total_visits || 0);
@@ -708,7 +742,20 @@ const syncConcurrentSessions = async () => {
   });
 
   if (error || !data) {
-    throw new Error(error?.message || 'Failed to sync analytics overview');
+    console.log(`Analytics sync fallback: ${error?.message || 'missing data'}`);
+    return {
+      totalVisits: 0,
+      totalSessionDurationMs: 0,
+      sessionCount: 0,
+      totalAppLoadTimeMs: 0,
+      appLoadSampleCount: 0,
+      averageSessionDurationMs: 0,
+      averageAppLoadTimeMs: 0,
+      activeSessions: 0,
+      concurrentSessions: 0,
+      peakConcurrentSessions: 0,
+      updatedAt: null,
+    };
   }
 
   return {
@@ -6659,8 +6706,8 @@ app.put('/server/collector/marketplace-orders/:orderId/status', async (c) => {
 });
 
 // Initialize storage on startup
-initStorage();
-ensureAdminUser();
-ensureMarketplaceSeed();
+void initStorage().catch((error) => console.log(`Startup initStorage error: ${error}`));
+void ensureAdminUser().catch((error) => console.log(`Startup ensureAdminUser error: ${error}`));
+// Marketplace seed is lazy-initialized on marketplace endpoints to avoid cold-start overhead.
 
 Deno.serve(app.fetch);
