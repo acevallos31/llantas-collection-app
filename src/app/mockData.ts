@@ -29,6 +29,9 @@ export interface Collection {
   description?: string;
   collectorId?: string | null;
   collectorName?: string | null;
+  generatorName?: string | null;
+  generatorPhone?: string | null;
+  generatorEmail?: string | null;
   destinationPointId?: string;
   arrivedAtPoint?: string;
   // Campos de pago

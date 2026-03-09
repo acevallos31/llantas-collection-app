@@ -156,6 +156,16 @@ export default function CollectionDetailPage() {
                 <p className="font-bold text-blue-600">+{collection.generatorPaymentAmount.toFixed(2)} Lps</p>
               </div>
             )}
+
+            {/* Contacto del cliente generador */}
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+              <p className="text-xs font-semibold text-slate-900 mb-2">👤 Contacto del Cliente</p>
+              <div className="space-y-1 text-sm">
+                <p><span className="text-gray-500">Nombre:</span> {collection.generatorName || 'N/A'}</p>
+                <p><span className="text-gray-500">Telefono:</span> {collection.generatorPhone || 'N/A'}</p>
+                <p><span className="text-gray-500">Correo:</span> {collection.generatorEmail || 'N/A'}</p>
+              </div>
+            </div>
           </div>
 
           <div className="mt-4 space-y-2 text-sm">

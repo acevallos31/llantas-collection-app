@@ -1705,6 +1705,7 @@ app.get("/server/collections/:collectionId", async (c) => {
     const collectionId = c.req.param('collectionId');
     const userProfile = await kv.get(`user:${user.id}`);
     const isCollector = userProfile?.type === 'collector';
+    const isAdmin = userProfile?.type === 'admin';
 
     const collection = isCollector
       ? await findCollectionById(collectionId)
@@ -1712,6 +1713,19 @@ app.get("/server/collections/:collectionId", async (c) => {
     
     if (!collection) {
       return c.json({ error: 'Collection not found' }, 404);
+    }
+
+    const canSeeGeneratorContact = isCollector
+      || isAdmin
+      || collection.userId === user.id;
+
+    if (canSeeGeneratorContact && collection.userId) {
+      const generatorProfile = await kv.get(`user:${collection.userId}`);
+      if (generatorProfile) {
+        collection.generatorName = generatorProfile.name || null;
+        collection.generatorPhone = generatorProfile.phone || null;
+        collection.generatorEmail = generatorProfile.email || null;
+      }
     }
     
     return c.json(collection);
