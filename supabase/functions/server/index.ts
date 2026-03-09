@@ -47,6 +47,12 @@ const pointAcceptsTireType = (point: any, tireType?: string) => {
   const acceptedTypes = Array.isArray(point?.acceptedTypes) ? point.acceptedTypes : [];
   if (!tireType || acceptedTypes.length === 0) return true;
   const normalizedType = normalizeLabel(tireType);
+
+  // Mixed/unknown labels are treated as compatible and validated by item-level checks when available.
+  if (['mixto', 'mixed', 'varios', 'otro', 'other', 'unknown'].includes(normalizedType)) {
+    return true;
+  }
+
   return acceptedTypes.some((type: string) => normalizeLabel(type) === normalizedType);
 };
 
@@ -65,6 +71,13 @@ const normalizeCollectionItems = (collection: any) => {
     tireCondition: normalizeTireCondition(collection?.tireCondition),
     tireCount: Math.max(1, Number(collection?.tireCount || 1)),
   }];
+};
+
+const pointAcceptsCollectionTireTypes = (point: any, collection: any) => {
+  const normalizedItems = normalizeCollectionItems(collection);
+  const uniqueTypes = [...new Set(normalizedItems.map((item: any) => normalizeLabel(item.tireType)))];
+
+  return uniqueTypes.every((type) => pointAcceptsTireType(point, type));
 };
 
 const calculateCollectorBonusPointsForCollection = (collection: any, collectorBonusMap: Map<string, number>) => {
@@ -4217,7 +4230,7 @@ app.post("/server/points/:pointId/arrivals", async (c) => {
     const resolvedTireCount = Number(tireCount || collection.tireCount || 0);
     const resolvedTireType = tireType || collection.tireType || 'unknown';
 
-    if (!pointAcceptsTireType(normalizedPoint, resolvedTireType)) {
+    if (!pointAcceptsCollectionTireTypes(normalizedPoint, collection)) {
       return c.json({ error: 'Collection point does not accept this tire type' }, 400);
     }
 
@@ -4433,7 +4446,7 @@ app.get('/server/collector/routes/suggestions', async (c) => {
         const requiredCapacity = Number(collection?.tireCount || 0);
         const availablePoints = points.filter((point: any) => {
           if (!point?.coordinates || point.isAvailable === false) return false;
-          if (!pointAcceptsTireType(point, collection?.tireType)) return false;
+          if (!pointAcceptsCollectionTireTypes(point, collection)) return false;
           const availableCapacity = Number(point.availableCapacity || 0);
           return availableCapacity >= requiredCapacity;
         });
