@@ -234,17 +234,6 @@ export default function AdminMarketplacePage() {
   const handleResetProducts = async () => {
     if (!window.confirm('¿Resetear todos los productos del marketplace? Esta acción eliminará y recreará todos los 59 productos con nuevas imágenes diferentes.')) return;
 
-    const requiredPin = '310387';
-    const enteredPin = window.prompt('Confirmación de seguridad: ingresa el PIN para continuar con el reseteo de productos.');
-    if (enteredPin === null) {
-      toast.info('Reseteo cancelado');
-      return;
-    }
-    if (enteredPin.trim() !== requiredPin) {
-      toast.error('PIN incorrecto. Reseteo cancelado.');
-      return;
-    }
-
     try {
       setLoading(true);
       const result = await marketplaceAPI.adminResetProducts();
