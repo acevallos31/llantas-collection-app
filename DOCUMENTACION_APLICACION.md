@@ -101,13 +101,52 @@ Beneficios directos:
 - Mejor control de centros de acopio
 - Base de indicadores para escalar el modelo
 
-## 7. Alcance actual del prototipo
-La solucion actual ya permite operar un ciclo funcional de punta a punta con roles diferenciados, registro de entregas, comprobantes e indicadores base.
+## 7. Marketplace integrado de llantas usadas
+**Fase 2 completada:** Se agregó un marketplace digital completo de compra/venta de llantas usadas con:
+
+### 7.1 Cliente (comprador)
+- Catálogo visual con fotos, especificaciones técnicas y lotes
+- Carrito de compra multi-item
+- Elección de método de entrega: recolector a domicilio o recogida en centro
+- Historial de compras y seguimiento de estado
+- Acumulación de puntos por transacciones
+
+### 7.2 Recolector (distribuidor)
+- Panel exclusivo de entregas marketplace disponibles
+- Estados de progreso: disponible → pendiente → en ruta → recogido → entregado
+- Comprobantes automáticos en PDF (retiro en centro y entrega al cliente)
+- Incremento de ingresos por gestión logística
+
+### 7.3 Administrador (supervisor)
+- CRUD completo de productos marketplace
+- Gestión de inventario y precios
+- Monitoreo de órdenes con control de estados
+- Métricas de ventas por producto y por centro de acopio
+
+### 7.4 Características técnicas
+- **Catálogo realista:** llantas automovilísticas, camión, autobús, motocicleta, bicicleta
+- **Separación de flujos:** reventa (buena/excelente) vs reciclaje (regular/desgastada)
+- **Integración con inventario existente:** productos generados automáticamente desde centros de acopio
+- **Lotes:** empaque de múltiples llantas (ej. 4 automóvil, 2 camión, 8 motocicleta)
+- **Fotos y especificaciones:** numeraciones técnicas y URLs de imágenes para cada producto
+- **Estados avanzados:** available, pending, in-progress, picked-up, confirmed, delivered
+
+## 8. Alcance actual del prototipo
+La solución actual opera integralmente:
+1. Ciclo de recolección punta a punta con trazabilidad completa
+2. Marketplace de productos con carrito y entregas logísticas
+3. Roles diferenciados (generador, recolector, cliente, administrador)
+4. Comprobantes digitales automáticos por entrega
+5. Base de indicadores para análisis operativo y ambiental
 
 En una fase posterior puede evolucionar con:
-- Tableros ejecutivos avanzados
-- Automatizaciones de negocio
-- Integraciones financieras y regulatorias
+- Tableros ejecutivos avanzados con KPIs profundos
+- Automatizaciones de negocio y flujos financieros
+- Integraciones regulatorias y reportes ambientales
+- Expansión a ciudades adicionales
+- APIs públicas para integraciones de terceros
 
 ---
-Ultima actualizacion: 2026-03-08
+Última actualización: 2026-03-08
+Fase 1 (recolección): Completada ✓
+Fase 2 (marketplace avanzado): Completada ✓
