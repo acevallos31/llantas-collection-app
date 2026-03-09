@@ -1761,6 +1761,12 @@ app.post('/server/collector/collections/:collectionId/take', async (c) => {
     const current = found.value;
     const currentStatus = String(current?.status || '').toLowerCase();
     const hasCollector = Boolean(current?.collectorId);
+
+    // Idempotent behavior: if this collector already has the collection, treat as success.
+    if (hasCollector && current?.collectorId === user.id && (currentStatus === 'pending' || currentStatus === 'in-progress')) {
+      return c.json(current);
+    }
+
     const canTake = !hasCollector && (currentStatus === 'available' || currentStatus === 'pending');
 
     if (!canTake) {
@@ -1799,6 +1805,11 @@ app.post('/server/collector/collections/:collectionId/take', async (c) => {
     const latest = await findCollectionKeyById(collectionId);
     const latestStatus = String(latest?.value?.status || '').toLowerCase();
     const latestHasCollector = Boolean(latest?.value?.collectorId);
+
+    if (latestHasCollector && latest?.value?.collectorId === user.id && (latestStatus === 'pending' || latestStatus === 'in-progress')) {
+      return c.json(latest.value);
+    }
+
     const latestCanTake = Boolean(latest?.key)
       && !latestHasCollector
       && (latestStatus === 'available' || latestStatus === 'pending');

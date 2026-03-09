@@ -535,6 +535,8 @@ export default function CollectorDashboardPage() {
     }
   };
 
+  const hasManualRouteCandidates = addedCollectionIds.size > 0;
+
   // Renderizado condicional sin early returns
 
   if (!isCollector) {
@@ -589,11 +591,17 @@ export default function CollectorDashboardPage() {
             <div className="py-4 flex items-center justify-center">
               <Loader2 className="w-5 h-5 animate-spin text-blue-700" />
             </div>
-          ) : routeSuggestions.length === 0 ? (
+          ) : routeSuggestions.length === 0 && !hasManualRouteCandidates ? (
             <p className="text-sm text-blue-900">No hay rutas sugeridas en este momento.</p>
           ) : (
             <div className="space-y-3">
-              {routeSuggestions.slice(0, 1).map((firstItem, routeIdx) => {
+              {[routeSuggestions[0] || {
+                optimization: {
+                  routeScore: 0,
+                  valueScore: 0,
+                  recommendation: 'Ruta personalizada armada manualmente.',
+                },
+              } as RouteSuggestion].map((firstItem, routeIdx) => {
                 const baseRouteItems = routeSuggestions.slice(0, Math.min(5, routeSuggestions.length));
                 const manuallyAddedRouteItemsFromSuggestions = routeSuggestions.filter(
                   (item) => addedCollectionIds.has(item.collectionId)
