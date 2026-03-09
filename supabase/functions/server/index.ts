@@ -1795,24 +1795,19 @@ app.post('/server/collector/collections/:collectionId/take', async (c) => {
       },
     };
 
-    // ACID-ish safeguard: single SQL update that only succeeds if row remains unclaimed + available/pending.
-    const { data: updatedRows, error: updateError } = await supabase
-      .from('kv_store_b7bf90da')
-      .update({ value: nextCollection })
-      .eq('key', found.key)
-      .in('value->>status', ['available', 'pending'])
-      .is('value->>collectorId', null)
-      .select('value');
+    // Re-check just before writing to avoid stale reads from previous request cycles.
+    const latest = await findCollectionKeyById(collectionId);
+    const latestStatus = String(latest?.value?.status || '').toLowerCase();
+    const latestHasCollector = Boolean(latest?.value?.collectorId);
+    const latestCanTake = Boolean(latest?.key)
+      && !latestHasCollector
+      && (latestStatus === 'available' || latestStatus === 'pending');
 
-    if (updateError) {
-      console.error('Collector take update error:', updateError);
-      return c.json({ error: 'Could not reserve collection' }, 500);
-    }
-
-    if (!updatedRows || updatedRows.length === 0) {
+    if (!latestCanTake) {
       return c.json({ error: 'Collection was taken by another collector' }, 409);
     }
 
+    await kv.set(latest.key, nextCollection);
     return c.json(nextCollection);
   } catch (error) {
     console.log(`Collector take collection error: ${error}`);

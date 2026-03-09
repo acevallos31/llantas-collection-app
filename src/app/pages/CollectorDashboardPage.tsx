@@ -595,11 +595,58 @@ export default function CollectorDashboardPage() {
             <div className="space-y-3">
               {routeSuggestions.slice(0, 1).map((firstItem, routeIdx) => {
                 const baseRouteItems = routeSuggestions.slice(0, Math.min(5, routeSuggestions.length));
-                const manuallyAddedRouteItems = routeSuggestions.filter(
+                const manuallyAddedRouteItemsFromSuggestions = routeSuggestions.filter(
                   (item) => addedCollectionIds.has(item.collectionId)
                     && !baseRouteItems.some((base) => base.collectionId === item.collectionId),
                 );
-                const allRouteItems = [...baseRouteItems, ...manuallyAddedRouteItems];
+
+                // Also allow manually added collections from the available board
+                // even if they were not part of the route suggestion list.
+                const manuallyAddedRouteItemsFromBoard: RouteSuggestion[] = collections
+                  .filter((collection) => {
+                    const normalizedStatus = normalizeCollectionStatus(collection);
+                    return addedCollectionIds.has(collection.id)
+                      && normalizedStatus === 'available'
+                      && !baseRouteItems.some((base) => base.collectionId === collection.id)
+                      && !manuallyAddedRouteItemsFromSuggestions.some((item) => item.collectionId === collection.id);
+                  })
+                  .map((collection) => ({
+                    collectionId: collection.id,
+                    collectionStatus: collection.status,
+                    pickupAddress: collection.address,
+                    dropoffPoint: {
+                      id: 'manual',
+                      name: 'Punto por definir',
+                      address: 'Se asignara al tomar la ruta',
+                    },
+                    tireCount: collection.tireCount,
+                    tireType: collection.tireType,
+                    tireCondition: collection.tireCondition || 'regular',
+                    distance: {
+                      collectorToPickupKm: 0,
+                      pickupToPointKm: 0,
+                      totalKm: 0,
+                    },
+                    estimatedCompensation: {
+                      currency: 'HNL',
+                      generatorPerTire: 0,
+                      generatorTotal: 0,
+                      collectorFreight: Number(collection.collectorPaymentAmount || 0),
+                      collectorBonusPoints: Number(collection.collectorBonusPoints || 0),
+                      generatorRewardValue: 0,
+                    },
+                    optimization: {
+                      routeScore: 999,
+                      valueScore: 0,
+                      recommendation: 'Agregada manualmente',
+                    },
+                  }));
+
+                const allRouteItems = [
+                  ...baseRouteItems,
+                  ...manuallyAddedRouteItemsFromSuggestions,
+                  ...manuallyAddedRouteItemsFromBoard,
+                ];
                 const routeItems = allRouteItems.filter(item => !removedCollectionIds.has(item.collectionId));
                 const totalTires = routeItems.reduce((sum, item) => sum + item.tireCount, 0);
                 const totalFreight = routeItems.reduce((sum, item) => sum + item.estimatedCompensation.collectorFreight, 0);
