@@ -50,6 +50,33 @@ const pointAcceptsTireType = (point: any, tireType?: string) => {
   return acceptedTypes.some((type: string) => normalizeLabel(type) === normalizedType);
 };
 
+const normalizeCollectionItems = (collection: any) => {
+  const rawItems = Array.isArray(collection?.collectionItems) ? collection.collectionItems : [];
+  if (rawItems.length > 0) {
+    return rawItems.map((item: any) => ({
+      tireType: String(item?.tireType || collection?.tireType || 'otro'),
+      tireCondition: normalizeTireCondition(item?.tireCondition || collection?.tireCondition),
+      tireCount: Math.max(1, Number(item?.tireCount || 1)),
+    }));
+  }
+
+  return [{
+    tireType: String(collection?.tireType || 'otro'),
+    tireCondition: normalizeTireCondition(collection?.tireCondition),
+    tireCount: Math.max(1, Number(collection?.tireCount || 1)),
+  }];
+};
+
+const calculateCollectorBonusPointsForCollection = (collection: any, collectorBonusMap: Map<string, number>) => {
+  const normalizedItems = normalizeCollectionItems(collection);
+
+  return normalizedItems.reduce((sum: number, item: any) => {
+    const key = `${normalizeLabel(item.tireType)}|${normalizeLabel(item.tireCondition)}`;
+    const bonusPerTire = Number(collectorBonusMap.get(key) || 0);
+    return sum + (bonusPerTire * Number(item.tireCount || 0));
+  }, 0);
+};
+
 const withPointStatus = (point: any) => {
   const currentLoad = Number(point.currentLoad || 0);
   const capacity = Number(point.capacity || 0);
@@ -1957,23 +1984,18 @@ app.put("/server/collections/:collectionId", async (c) => {
             .toLowerCase()
             .trim();
         
-        const tireCondition = normalizeTireCondition(updatedCollection.tireCondition);
-        const tireType = normalizeLabel(updatedCollection.tireType || 'otro');
-        
         const { data: collectorRatesData } = await supabase
           .from('collector_tire_rates')
           .select('tire_type, tire_condition, bonus_points')
           .eq('is_active', true);
-        
-        let collectorBonusPoints = 0;
+
+        const collectorBonusMap = new Map<string, number>();
         for (const rate of collectorRatesData || []) {
           const key = `${normalizeLabel(rate.tire_type)}|${normalizeLabel(rate.tire_condition)}`;
-          const lookupKey = `${tireType}|${normalizeLabel(tireCondition)}`;
-          if (key === lookupKey) {
-            collectorBonusPoints = Number(rate.bonus_points || 0);
-            break;
-          }
+          collectorBonusMap.set(key, Number(rate.bonus_points || 0));
         }
+
+        const collectorBonusPoints = calculateCollectorBonusPointsForCollection(updatedCollection, collectorBonusMap);
         
         // Estimate distance (if not available, use a default based on location)
         let estimatedDistanceKm = updatedCollection.distance_km || 10; // Default 10km if no distance
@@ -4353,8 +4375,7 @@ app.get('/server/collector/routes/suggestions', async (c) => {
         const tireCondition = normalizeTireCondition(collection?.tireCondition);
         const tariffPerTire = Number(pricing.generatorTariffsByCondition[tireCondition] || pricing.generatorTariffsByCondition.regular || 0);
         const tireCount = Number(collection?.tireCount || 0);
-        const bonusRateKey = `${normalizeLabel(collection?.tireType || 'otro')}|${normalizeLabel(tireCondition)}`;
-        const collectorBonusPoints = Number(collectorBonusMap.get(bonusRateKey) || 0);
+        const collectorBonusPoints = calculateCollectorBonusPointsForCollection(collection, collectorBonusMap);
         const generatorPayment = Number((tariffPerTire * tireCount).toFixed(2));
         const collectorFreight = estimateCollectorFreight(
           totalRouteKm,

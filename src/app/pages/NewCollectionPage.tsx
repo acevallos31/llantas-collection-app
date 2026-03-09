@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
-import { collectionsAPI, uploadAPI } from '../services/api';
-import type { CollectionItem } from '../mockData';
+import { collectionsAPI, paymentsAPI, uploadAPI } from '../services/api';
+import type { CollectionItem, GeneratorTireRate } from '../mockData';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
@@ -38,6 +38,7 @@ export default function NewCollectionPage() {
   const [description, setDescription] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
   const [paymentPreference, setPaymentPreference] = useState<'points' | 'cash'>('points');
+  const [generatorRates, setGeneratorRates] = useState<GeneratorTireRate[]>([]);
 
   if (user?.type === 'collector') {
     return (
@@ -73,6 +74,47 @@ export default function NewCollectionPage() {
   ];
 
   const totalTireCount = collectionItems.reduce((sum, item) => sum + item.tireCount, 0);
+
+  useEffect(() => {
+    const loadGeneratorRates = async () => {
+      try {
+        const rates = await paymentsAPI.getGeneratorRates();
+        setGeneratorRates((rates || []).filter((rate) => rate.isActive));
+      } catch {
+        // Keep fallback values if rates are not available.
+        setGeneratorRates([]);
+      }
+    };
+
+    void loadGeneratorRates();
+  }, []);
+
+  const normalizeLabel = (value: string) =>
+    String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
+  const rateMap = new Map<string, GeneratorTireRate>();
+  for (const rate of generatorRates) {
+    const key = `${normalizeLabel(rate.tireType)}|${normalizeLabel(rate.tireCondition)}`;
+    rateMap.set(key, rate);
+  }
+
+  const paymentEstimate = collectionItems.reduce((acc, item) => {
+    const key = `${normalizeLabel(item.tireType)}|${normalizeLabel(item.tireCondition)}`;
+    const matchedRate = rateMap.get(key);
+
+    const pointsPerTire = Number(matchedRate?.pointsPerTire ?? 100);
+    const cashPerTire = Number(matchedRate?.cashPerTire ?? 5);
+    const minPointsOnCash = Number(matchedRate?.minPointsOnCash ?? 5);
+
+    acc.pointsOnly += pointsPerTire * item.tireCount;
+    acc.cashAmount += cashPerTire * item.tireCount;
+    acc.cashBonusPoints += minPointsOnCash * item.tireCount;
+    return acc;
+  }, { pointsOnly: 0, cashAmount: 0, cashBonusPoints: 0 });
 
   const updateItem = (index: number, updates: Partial<CollectionItem>) => {
     setCollectionItems((prev) => prev.map((item, itemIndex) => {
@@ -180,10 +222,8 @@ export default function NewCollectionPage() {
         paymentPreference,
       });
 
-      const pointsEarned = totalTireCount * 30;
-      
       toast.success('¡Recolección registrada exitosamente!', {
-        description: `Se han asignado ${pointsEarned} puntos a tu cuenta`
+        description: 'Tu solicitud ya esta disponible para que un recolector la tome'
       });
 
       // Refresh user to update points
@@ -461,7 +501,7 @@ export default function NewCollectionPage() {
                   Puntos en la Plataforma
                 </Label>
                 <p className="text-sm text-gray-600 mt-1">
-                  Recibe <span className="font-bold text-green-600">{totalTireCount * 100} puntos</span> que puedes canjear por recompensas
+                  Recibe <span className="font-bold text-green-600">{paymentEstimate.pointsOnly} puntos</span> que puedes canjear por recompensas
                 </p>
               </div>
             </div>
@@ -473,7 +513,7 @@ export default function NewCollectionPage() {
                   Pago en Efectivo
                 </Label>
                 <p className="text-sm text-gray-600 mt-1">
-                  Recibe <span className="font-bold text-green-600">L {(totalTireCount * 5).toFixed(2)}</span> en efectivo + <span className="font-bold">{totalTireCount * 5} puntos</span> adicionales
+                  Recibe <span className="font-bold text-green-600">L {paymentEstimate.cashAmount.toFixed(2)}</span> en efectivo + <span className="font-bold">{paymentEstimate.cashBonusPoints} puntos</span> adicionales
                 </p>
               </div>
             </div>
