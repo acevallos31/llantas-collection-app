@@ -1929,6 +1929,167 @@ app.post('/server/collector/collections/:collectionId/take', async (c) => {
   }
 });
 
+// Start route: Change all pending collections to in-progress
+app.post('/server/collector/start-route', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    
+    if (!user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    const userProfile = await kv.get(`user:${user.id}`);
+    const isCollector = userProfile?.type === 'collector';
+    
+    if (!isCollector) {
+      return c.json({ error: 'Only collectors can start routes' }, 403);
+    }
+    
+    // Find all pending collections assigned to this collector
+    const allCollections = await kv.getByPrefix('collection:');
+    const pendingCollections = allCollections.filter((item: any) => 
+      item.value?.collectorId === user.id && 
+      item.value?.status === 'pending'
+    );
+    
+    if (pendingCollections.length === 0) {
+      return c.json({ message: 'No pending collections to start', updated: 0 }, 200);
+    }
+    
+    // Update all pending collections to in-progress
+    const updates = [];
+    for (const item of pendingCollections) {
+      const collection = item.value;
+      const traceability = {
+        qrCode: collection?.traceability?.qrCode || generateQrCode(user.id, collection.id),
+        currentStage: 'en-proceso',
+        events: collection?.traceability?.events || [],
+      };
+      
+      traceability.events.push(
+        createTraceEvent(
+          'en-proceso',
+          'collector',
+          'Recolector inició la ruta',
+          { status: 'in-progress' },
+        ),
+      );
+      
+      const updatedCollection = {
+        ...collection,
+        status: 'in-progress',
+        traceability,
+      };
+      
+      // Award generator points when route starts (if not already awarded)
+      if (!collection.generatorPointsCreditedAtPickup) {
+        const collectionOwnerProfile = await kv.get(`user:${collection.userId}`);
+        const ownerStats = await kv.get(`stats:${collection.userId}`);
+
+        if (collectionOwnerProfile && ownerStats) {
+          collectionOwnerProfile.points = Number(collectionOwnerProfile.points || 0) + Number(collection.points || 0);
+
+          if (collectionOwnerProfile.points >= 1000) {
+            collectionOwnerProfile.level = 'Eco Master';
+          } else if (collectionOwnerProfile.points >= 500) {
+            collectionOwnerProfile.level = 'Eco Champion';
+          } else if (collectionOwnerProfile.points >= 200) {
+            collectionOwnerProfile.level = 'Eco Warrior';
+          } else if (collectionOwnerProfile.points >= 50) {
+            collectionOwnerProfile.level = 'Eco Guardian';
+          } else {
+            collectionOwnerProfile.level = 'Eco Novato';
+          }
+
+          await kv.set(`user:${collection.userId}`, collectionOwnerProfile);
+
+          ownerStats.totalPoints = collectionOwnerProfile.points;
+          await kv.set(`stats:${collection.userId}`, ownerStats);
+        }
+
+        updatedCollection.generatorPointsCreditedAtPickup = new Date().toISOString();
+      }
+      
+      await kv.set(item.key, updatedCollection);
+      updates.push(updatedCollection);
+    }
+    
+    return c.json({ 
+      message: `Started route with ${updates.length} collection${updates.length > 1 ? 's' : ''}`,
+      updated: updates.length,
+      collections: updates 
+    });
+    
+  } catch (error) {
+    console.log(`Start route error: ${error}`);
+    return c.json({ error: 'Error starting route' }, 500);
+  }
+});
+
+// Update collector location for real-time tracking
+app.post('/server/collector/location', async (c) => {
+  try {
+    const accessToken = c.req.header('Authorization')?.split(' ')[1];
+    const supabase = getSupabaseClient(true);
+    const { data: { user }, error } = await supabase.auth.getUser(accessToken);
+    
+    if (!user?.id) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+    
+    const userProfile = await kv.get(`user:${user.id}`);
+    const isCollector = userProfile?.type === 'collector';
+    
+    if (!isCollector) {
+      return c.json({ error: 'Only collectors can update location' }, 403);
+    }
+    
+    const body = await c.req.json();
+    const lat = Number(body.lat);
+    const lng = Number(body.lng);
+    
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return c.json({ error: 'Invalid coordinates' }, 400);
+    }
+    
+    const locationData = {
+      collectorId: user.id,
+      collectorName: userProfile?.name || 'Recolector',
+      lat,
+      lng,
+      timestamp: new Date().toISOString(),
+    };
+    
+    await kv.set(`collector-location:${user.id}`, locationData);
+    
+    return c.json(locationData);
+    
+  } catch (error) {
+    console.log(`Update collector location error: ${error}`);
+    return c.json({ error: 'Error updating location' }, 500);
+  }
+});
+
+// Get collector location by ID (for generators to track their collector)
+app.get('/server/collector/:collectorId/location', async (c) => {
+  try {
+    const collectorId = c.req.param('collectorId');
+    const locationData = await kv.get(`collector-location:${collectorId}`);
+    
+    if (!locationData) {
+      return c.json({ error: 'Location not available' }, 404);
+    }
+    
+    return c.json(locationData);
+    
+  } catch (error) {
+    console.log(`Get collector location error: ${error}`);
+    return c.json({ error: 'Error getting location' }, 500);
+  }
+});
+
 // Update a collection
 app.put("/server/collections/:collectionId", async (c) => {
   try {

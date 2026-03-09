@@ -1073,6 +1073,46 @@ export const collectorAPI = {
     }
     return result;
   },
+
+  async startRoute() {
+    const response = await fetch(`${API_BASE_URL}/collector/start-route`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw buildApiError(response, result, 'No se pudo iniciar la ruta', 'collector.startRoute');
+    }
+    return result;
+  },
+
+  async updateLocation(lat: number, lng: number) {
+    const response = await fetch(`${API_BASE_URL}/collector/location`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+      body: JSON.stringify({ lat, lng }),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw buildApiError(response, result, 'No se pudo actualizar la ubicación', 'collector.updateLocation');
+    }
+    return result;
+  },
+
+  async getCollectorLocation(collectorId: string) {
+    const response = await fetch(`${API_BASE_URL}/collector/${collectorId}/location`, {
+      method: 'GET',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw buildApiError(response, result, 'No se pudo obtener la ubicación del recolector', 'collector.getCollectorLocation');
+    }
+    return result;
+  },
 };
 
 export const analyticsAPI = {

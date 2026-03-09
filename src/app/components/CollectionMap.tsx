@@ -8,6 +8,7 @@ interface CollectionMapProps {
   points: CollectionPoint[];
   collections?: Collection[];
   userLocation?: { lat: number; lng: number } | null;
+  collectorLocation?: { lat: number; lng: number; collectorName?: string } | null;
   heightClassName?: string;
   showRouteTrace?: boolean;
 }
@@ -21,6 +22,7 @@ export default function CollectionMap({
   points,
   collections = [],
   userLocation = null,
+  collectorLocation = null,
   heightClassName = 'h-[420px]',
   showRouteTrace = false,
 }: CollectionMapProps) {
@@ -39,9 +41,10 @@ export default function CollectionMap({
       .map((collection) => [collection.coordinates.lat, collection.coordinates.lng]);
 
     const userCoordinates = userLocation ? [[userLocation.lat, userLocation.lng] as LatLngTuple] : [];
+    const collectorCoordinates = collectorLocation ? [[collectorLocation.lat, collectorLocation.lng] as LatLngTuple] : [];
 
-    return [...pointCoordinates, ...collectionCoordinates, ...userCoordinates];
-  }, [points, collections, userLocation]);
+    return [...pointCoordinates, ...collectionCoordinates, ...userCoordinates, ...collectorCoordinates];
+  }, [points, collections, userLocation, collectorLocation]);
 
   const defaultCenter: LatLngTuple = coordinates[0] || [15.5042, -88.0250];
 
@@ -147,6 +150,69 @@ export default function CollectionMap({
         .addTo(layerGroup);
     }
 
+    if (collectorLocation) {
+      const collectorMarker = L.circleMarker([collectorLocation.lat, collectorLocation.lng], {
+        radius: 10,
+        color: '#f97316',
+        fillColor: '#f97316',
+        fillOpacity: 0.9,
+        weight: 3,
+      });
+
+      collectorMarker.bindPopup(
+        `<div style="font-size:12px;line-height:1.4">
+          <strong>🚚 ${collectorLocation.collectorName || 'Recolector'}</strong><br/>
+          Ubicación en tiempo real
+        </div>`,
+      );
+
+      collectorMarker.addTo(layerGroup);
+
+      // Add a pulsing animation marker using divIcon
+      const pulsingMarker = L.marker([collectorLocation.lat, collectorLocation.lng], {
+        icon: L.divIcon({
+          className: 'pulsing-collector-marker',
+          html: `<div style="
+            position: relative;
+            width: 20px;
+            height: 20px;
+          ">
+            <div style="
+              position: absolute;
+              width: 100%;
+              height: 100%;
+              border-radius: 50%;
+              background-color: rgba(249, 115, 22, 0.4);
+              animation: pulse 2s infinite;
+            "></div>
+            <div style="
+              position: absolute;
+              width: 100%;
+              height: 100%;
+              border-radius: 50%;
+              background-color: #f97316;
+            "></div>
+            <style>
+              @keyframes pulse {
+                0% {
+                  transform: scale(1);
+                  opacity: 1;
+                }
+                100% {
+                  transform: scale(2.5);
+                  opacity: 0;
+                }
+              }
+            </style>
+          </div>`,
+          iconSize: [20, 20],
+          iconAnchor: [10, 10],
+        }),
+      });
+
+      pulsingMarker.addTo(layerGroup);
+    }
+
     // Draw route trace if enabled
     if (showRouteTrace && userLocation && validCollections.length > 0) {
       const routePoints: LatLngTuple[] = [[userLocation.lat, userLocation.lng]];
@@ -222,7 +288,7 @@ export default function CollectionMap({
     } catch {
       // Ignore transient map lifecycle errors during route changes.
     }
-  }, [points, collections, userLocation, coordinates, showRouteTrace]);
+  }, [points, collections, userLocation, collectorLocation, coordinates, showRouteTrace]);
 
   return (
     <div className={`relative overflow-hidden rounded-2xl border bg-white ${heightClassName}`}>

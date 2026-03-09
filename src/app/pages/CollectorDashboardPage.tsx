@@ -104,6 +104,7 @@ export default function CollectorDashboardPage() {
   const lastAutoRefreshRef = useRef(0);
   const routeSyncIntervalRef = useRef<number | null>(null);
   const latestCollectorLocationRef = useRef<{ lat: number; lng: number } | null>(null);
+  const locationUpdateIntervalRef = useRef<number | null>(null);
 
   const isCollector = user?.type === 'collector';
 
@@ -222,6 +223,59 @@ export default function CollectorDashboardPage() {
     };
   }, [isCollector]);
 
+
+  // Update collector location in real-time when route is active
+  useEffect(() => {
+    const hasActiveCollections = collections.some(
+      (c) => c.status === 'in-progress' && c.collectorId === user?.id
+    );
+    
+    if (!isCollector || !hasActiveCollections) {
+      if (locationUpdateIntervalRef.current) {
+        window.clearInterval(locationUpdateIntervalRef.current);
+        locationUpdateIntervalRef.current = null;
+      }
+      return;
+    }
+
+    const updateLocation = () => {
+      if (!navigator.geolocation) return;
+      
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          const lat = position.coords.latitude;
+          const lng = position.coords.longitude;
+          
+          setCollectorLocation({ lat, lng });
+          latestCollectorLocationRef.current = { lat, lng };
+          
+          try {
+            await collectorAPI.updateLocation(lat, lng);
+            console.log('📍 Location updated:', lat, lng);
+          } catch (error) {
+            console.error('Error updating location:', error);
+          }
+        },
+        (error) => {
+          console.warn('Geolocation error:', error);
+        },
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+      );
+    };
+
+    // Update location immediately
+    updateLocation();
+    
+    // Then update every 15 seconds while route is active
+    locationUpdateIntervalRef.current = window.setInterval(updateLocation, 15000);
+
+    return () => {
+      if (locationUpdateIntervalRef.current) {
+        window.clearInterval(locationUpdateIntervalRef.current);
+        locationUpdateIntervalRef.current = null;
+      }
+    };
+  }, [isCollector, collections, user?.id]);
 
   // Redirect non-collectors
   useEffect(() => {
@@ -751,6 +805,38 @@ export default function CollectorDashboardPage() {
     }
   };
 
+  const startRoute = async () => {
+    try {
+      setUpdatingId('start-route');
+      const result = await collectorAPI.startRoute();
+      
+      if (result.updated > 0) {
+        toast.success(`Ruta iniciada: ${result.updated} recolección${result.updated > 1 ? 'es' : ''} en proceso`);
+        await loadCollections();
+        await loadRouteSuggestions();
+      } else {
+        toast.info('No hay recolecciones pendientes para iniciar');
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'No se pudo iniciar la ruta');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const isCollectionOverdue = (collection: Collection) => {
+    if (!collection.scheduledDate) return false;
+    
+    const scheduledTime = new Date(collection.scheduledDate).getTime();
+    const now = Date.now();
+    const hourInMs = 60 * 60 * 1000;
+    
+    // Mark as overdue if more than 2 hours past scheduled time and not yet picked up
+    return now > scheduledTime + (2 * hourInMs) && 
+           collection.status !== 'arrived' && 
+           collection.status !== 'completed';
+  };
+
   const hasManualRouteCandidates = addedCollectionIds.size > 0;
 
   // Renderizado condicional sin early returns
@@ -790,6 +876,33 @@ export default function CollectorDashboardPage() {
       </div>
 
       <div className="px-4 pt-4">
+        {pendingCount > 0 && (
+          <Card className="p-4 bg-gradient-to-r from-amber-500 to-orange-600 text-white mb-4">
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className="font-bold text-lg">Listo para recolectar</p>
+                <p className="text-sm text-amber-100">
+                  Tienes {pendingCount} recolección{pendingCount > 1 ? 'es' : ''} pendiente{pendingCount > 1 ? 's' : ''}
+                </p>
+              </div>
+              <Button 
+                className="bg-white text-orange-600 hover:bg-gray-100 font-bold"
+                onClick={() => void startRoute()}
+                disabled={updatingId === 'start-route'}
+              >
+                {updatingId === 'start-route' ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <>
+                    <PlayCircle className="w-5 h-5 mr-2" />
+                    Comenzar ruta
+                  </>
+                )}
+              </Button>
+            </div>
+          </Card>
+        )}
+
         <Card className="p-4 border-blue-200 bg-blue-50/70 mb-4">
           <div className="flex items-center justify-between gap-3 mb-3">
             <div>
@@ -1099,26 +1212,45 @@ export default function CollectorDashboardPage() {
               {(() => {
                 const normalizedStatus = normalizeCollectionStatus(collection);
                 const isAssignedToMe = collection.collectorId === user?.id;
+                const isOverdue = isCollectionOverdue(collection);
 
                 return (
                   <>
               <div className="flex items-start justify-between gap-3">
-                <div>
+                <div className="flex-1">
                   <p className="font-semibold">{collection.tireType} - {collection.tireCount} llantas</p>
                   <p className="text-sm text-gray-600 flex items-center gap-1 mt-1">
                     <MapPin className="w-4 h-4" />
                     {collection.address}
                   </p>
+                  {collection.scheduledDate && (
+                    <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                      <CalendarDays className="w-3 h-3" />
+                      Programada: {new Date(collection.scheduledDate).toLocaleString('es-HN', { 
+                        month: 'short', 
+                        day: 'numeric', 
+                        hour: '2-digit', 
+                        minute: '2-digit' 
+                      })}
+                    </p>
+                  )}
                 </div>
-                <Badge variant={normalizedStatus === 'in-progress' ? 'secondary' : 'outline'}>
-                  {normalizedStatus === 'available'
-                    ? 'Disponible'
-                    : normalizedStatus === 'pending'
-                      ? 'Pendiente'
-                      : normalizedStatus === 'arrived'
-                        ? 'Recogido'
-                        : 'En proceso'}
-                </Badge>
+                <div className="flex flex-col gap-2 items-end">
+                  <Badge variant={normalizedStatus === 'in-progress' ? 'secondary' : 'outline'}>
+                    {normalizedStatus === 'available'
+                      ? 'Disponible'
+                      : normalizedStatus === 'pending'
+                        ? 'Pendiente'
+                        : normalizedStatus === 'arrived'
+                          ? 'Recogido'
+                          : 'En proceso'}
+                  </Badge>
+                  {isOverdue && (
+                    <Badge variant="destructive" className="text-xs">
+                      ⚠️ Atrasada
+                    </Badge>
+                  )}
+                </div>
               </div>
 
               <div className="mt-3 space-y-2">

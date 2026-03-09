@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { collectionsAPI } from '../services/api.ts';
+import { collectionsAPI, collectorAPI } from '../services/api.ts';
 import type { Collection } from '../mockData.ts';
 import { Button } from '../components/ui/button.tsx';
 import { Card } from '../components/ui/card.tsx';
@@ -43,6 +43,8 @@ export default function CollectionDetailPage() {
   const [collection, setCollection] = useState<Collection | null>(null);
   const [trace, setTrace] = useState<CollectionTrace | null>(null);
   const [loading, setLoading] = useState(true);
+  const [collectorLocation, setCollectorLocation] = useState<{ lat: number; lng: number; collectorName?: string } | null>(null);
+  const locationIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
     const loadDetail = async () => {
@@ -70,6 +72,44 @@ export default function CollectionDetailPage() {
 
     loadDetail();
   }, [collectionId]);
+
+  // Load collector location in real-time when collector is assigned and collection is in progress
+  useEffect(() => {
+    if (!collection?.collectorId || collection.status === 'completed' || collection.status === 'cancelled') {
+      setCollectorLocation(null);
+      if (locationIntervalRef.current) {
+        window.clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+      return;
+    }
+
+    const loadCollectorLocation = async () => {
+      try {
+        const locationData = await collectorAPI.getCollectorLocation(collection.collectorId!);
+        setCollectorLocation({
+          lat: locationData.lat,
+          lng: locationData.lng,
+          collectorName: locationData.collectorName,
+        });
+      } catch (error) {
+        console.error('Error loading collector location:', error);
+      }
+    };
+
+    // Load immediately
+    loadCollectorLocation();
+
+    // Then update every 20 seconds
+    locationIntervalRef.current = window.setInterval(loadCollectorLocation, 20000);
+
+    return () => {
+      if (locationIntervalRef.current) {
+        window.clearInterval(locationIntervalRef.current);
+        locationIntervalRef.current = null;
+      }
+    };
+  }, [collection?.collectorId, collection?.status]);
 
   const orderedEvents = useMemo(() => {
     if (!trace?.events?.length) return [];
@@ -180,8 +220,27 @@ export default function CollectionDetailPage() {
           points={[]}
           collections={[collection]}
           userLocation={null}
+          collectorLocation={collectorLocation}
           heightClassName="h-[420px]"
         />
+
+        {collectorLocation && (
+          <Card className="p-4 bg-orange-50 border-orange-200 mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center text-white">
+                🚚
+              </div>
+              <div className="flex-1">
+                <p className="font-semibold text-orange-900">
+                  {collectorLocation.collectorName || 'Recolector'} en camino
+                </p>
+                <p className="text-sm text-orange-700">
+                  Ubicación actualizada en tiempo real
+                </p>
+              </div>
+            </div>
+          </Card>
+        )}
 
         <Card className="p-4">
           <h2 className="font-semibold mb-3 flex items-center gap-2"><Route className="w-4 h-4" /> Timeline de trazabilidad</h2>
