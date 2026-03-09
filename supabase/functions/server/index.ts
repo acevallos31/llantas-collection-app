@@ -4985,10 +4985,19 @@ app.get("/server/stats/:userId", async (c) => {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const stats = await kv.get(`stats:${userId}`);
+    let stats = await kv.get(`stats:${userId}`);
     
+    // Auto-initialize stats if they don't exist (legacy users or incomplete signup)
     if (!stats) {
-      return c.json({ error: 'Stats not found' }, 404);
+      stats = {
+        totalCollections: 0,
+        totalTires: 0,
+        totalPoints: 0,
+        co2Saved: 0,
+        treesEquivalent: 0,
+        recycledWeight: 0
+      };
+      await kv.set(`stats:${userId}`, stats);
     }
     
     return c.json(stats);
