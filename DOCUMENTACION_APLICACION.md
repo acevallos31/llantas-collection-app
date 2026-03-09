@@ -1,171 +1,113 @@
-# Documentacion Funcional - Llantas Collection App (EcolLantApp)
+# Documento Ejecutivo Para Cliente - EcolLantApp
 
-## 1. Objetivo de la aplicacion
-EcolLantApp es una plataforma para gestionar la recoleccion y trazabilidad de llantas usadas.
-Conecta a tres tipos de usuarios:
-- Generadores (quienes solicitan la recoleccion)
-- Recolectores (quienes toman rutas y entregan en centros de acopio)
-- Administradores (quienes supervisan usuarios, centros, pagos, puntos e inventario)
+## 1. Resumen de la solucion
+EcolLantApp es un prototipo que organiza todo el ciclo de recoleccion de llantas usadas, desde la solicitud hasta la entrega final en centro de acopio, con trazabilidad y control operativo.
 
-La plataforma prioriza:
-- Gestion operativa de recolecciones
-- Trazabilidad por eventos y QR
-- Incentivos por puntos y recompensas
-- Control de centros de acopio e inventario
+El objetivo principal es:
+- Facilitar la operacion diaria de recoleccion
+- Dar visibilidad en tiempo real del estado de cada solicitud
+- Medir desempeno operativo y ambiental
+- Incentivar la participacion mediante puntos y recompensas
 
-## 2. Arquitectura general
-- Frontend: React + TypeScript + Vite
-- Backend: Supabase Edge Function (`supabase/functions/server/index.ts`)
-- Persistencia principal: Deno KV (usuarios, recolecciones, eventos, centros, inventario)
-- Integraciones SQL (opcionales/en evolucion): tablas y funciones de pagos en `payment_system.sql`
+## 2. Logica general del proceso
+La operacion se basa en un flujo simple y controlado:
 
-## 3. Roles de usuario
+1. Un generador registra una solicitud de recoleccion.
+2. Un recolector toma esa solicitud y la incorpora a su ruta.
+3. El recolector ejecuta la recoleccion y marca su avance.
+4. Al confirmar la entrega, el sistema asigna el centro de acopio mas conveniente segun disponibilidad.
+5. Se registra la entrada en el centro, se actualiza la carga del centro y se emite comprobante individual.
+6. La solicitud queda cerrada y trazable en historial.
+
+## 3. Roles de usuario y funciones
 
 ### 3.1 Generador
-Puede:
-- Registrarse e iniciar sesion
-- Crear solicitudes de recoleccion de llantas
-- Ver historial y trazabilidad de sus solicitudes
-- Acumular puntos segun reglas del sistema
-- Canjear recompensas
+Responsabilidad: solicitar recolecciones y dar seguimiento.
 
-No puede:
-- Asignarse recolecciones como recolector
-- Administrar centros o usuarios
+Funciones principales:
+- Crear solicitudes de recoleccion
+- Consultar historial de solicitudes
+- Ver estado y trazabilidad de cada caso
+- Acumular puntos por participacion
+- Canjear recompensas disponibles
 
 ### 3.2 Recolector
-Puede:
-- Ver recolecciones disponibles
-- Tomar rutas sugeridas o tomar recolecciones individuales
-- Cambiar estado de sus recolecciones (pendiente, en proceso)
-- Completar entrega con boton `Entrega completada`
-- Registrar entrega en centro de acopio de forma automatica (centro mas cercano con capacidad)
-- Generar comprobante individual por cada entrega
-- Ganar puntos por recolecciones completadas
+Responsabilidad: ejecutar la recoleccion y entrega en centro de acopio.
 
-No puede:
-- Modificar recolecciones de otros recolectores
-- Administrar usuarios o centros globalmente
+Funciones principales:
+- Ver oportunidades de recoleccion
+- Tomar recolecciones y organizar ruta
+- Actualizar avance de trabajo
+- Confirmar entrega mediante boton `Entrega completada`
+- Obtener comprobante individual por cada recoleccion entregada
+- Acumular puntos por cumplimiento operativo
 
 ### 3.3 Administrador
-Puede:
-- Gestionar usuarios (roles y datos)
-- Crear/editar/eliminar centros de acopio
-- Ver y registrar inventario por centro
-- Supervisar analitica, pagos, recompensas y estados
-- Consultar trazabilidad y certificaciones
+Responsabilidad: control y supervision integral de la operacion.
 
-## 4. Flujo principal de recoleccion
+Funciones principales:
+- Gestionar usuarios y permisos
+- Administrar centros de acopio
+- Monitorear inventario recibido por centro
+- Supervisar indicadores operativos
+- Dar seguimiento a trazabilidad y cumplimiento
 
-### 4.1 Solicitud de recoleccion (Generador)
-1. El generador crea una solicitud con tipo/cantidad de llantas y direccion.
-2. La solicitud entra en estado disponible para que un recolector la tome.
+## 4. Funcionalidades clave del prototipo
 
-### 4.2 Toma de ruta (Recolector)
-1. El recolector ve sugerencias de ruta y/o lista de disponibles.
-2. Toma una o varias recolecciones.
-3. La solicitud pasa a estado `pending` (asignada) y luego `in-progress` al iniciar ruta.
+### 4.1 Asignacion inteligente de centro de acopio
+Cuando el recolector confirma una entrega, el sistema prioriza centros aptos y selecciona el mas conveniente para la operacion, evitando saturaciones y mejorando tiempos.
 
-### 4.3 Entrega en centro de acopio (Recolector)
-Con el boton `Entrega completada`, el sistema:
-1. Busca centros disponibles.
-2. Filtra solo centros que:
-   - tengan capacidad disponible suficiente
-   - acepten el tipo de llanta
-3. Selecciona el centro mas cercano a la recoleccion.
-4. Registra la llegada en inventario del centro (`/points/:pointId/arrivals`).
-5. Aumenta `currentLoad` del centro automaticamente.
-6. Marca la recoleccion como completada.
-7. Genera PDF de comprobante individual para esa recoleccion.
+### 4.2 Control de capacidad en centros
+Cada entrega incrementa automaticamente la carga del centro correspondiente. Esto mantiene un control actualizado de disponibilidad y permite una gestion mas ordenada.
 
-## 5. Reglas de centros de acopio e inventario
-- Cada centro tiene `capacity` y `currentLoad`.
-- Se calcula `availableCapacity = capacity - currentLoad`.
-- Una llegada solo se registra si `availableCapacity >= tireCount`.
-- Si el centro no acepta el tipo de llanta, la llegada se bloquea.
-- Cada registro de llegada crea un item de inventario independiente.
+### 4.3 Comprobante individual por entrega
+Cada recoleccion genera su propio comprobante. Esto garantiza respaldo documental por unidad operativa, incluso cuando un recolector realiza varias entregas en una misma visita.
 
-## 6. Comprobante individual de entrega
-Cada entrega genera un comprobante PDF independiente por recoleccion.
-El comprobante incluye, entre otros datos:
-- Folio
-- Fecha/hora de entrega
-- Identificador de recoleccion
-- Recolector
-- Centro de acopio
-- Cantidad y tipo de llantas
-- Referencia de inventario
+### 4.4 Trazabilidad del ciclo completo
+Cada solicitud conserva su historial de estados. Esto permite saber que paso, cuando paso y quien lo ejecuto.
 
-Esto permite que en una sola visita al centro, un recolector entregue varias recolecciones y cada una conserve su comprobante individual.
+### 4.5 Incentivos por puntos
+El prototipo integra un esquema de puntos para promover continuidad de uso y cumplimiento de procesos.
 
-## 7. Puntos, recompensas y pagos
+## 5. Metricas que estamos analizando en el prototipo
 
-### 7.1 Puntos
-- El generador acumula puntos por recolecciones segun reglas del sistema.
-- El recolector acumula puntos bonus al completar recolecciones.
-- Los puntos se reflejan en perfil y estadisticas.
+## 5.1 Metricas operativas
+- Total de solicitudes registradas
+- Solicitudes completadas vs pendientes
+- Tiempo de atencion por solicitud
+- Productividad por recolector (solicitudes y llantas gestionadas)
+- Distribucion de carga por centro de acopio
 
-### 7.2 Recompensas
-- Los usuarios pueden canjear recompensas segun puntos disponibles.
-- El sistema valida disponibilidad y saldo de puntos.
+## 5.2 Metricas de servicio
+- Nivel de cumplimiento de entregas
+- Casos reprogramados o cancelados
+- Eficiencia del flujo de entrega
 
-### 7.3 Pagos (modelo SQL)
-El archivo `payment_system.sql` define:
-- `payment_settings`
-- `collector_payments`
-- `generator_payments`
-- Funciones de calculo por distancia y llantas
+## 5.3 Metricas ambientales
+- Total de llantas recuperadas
+- Estimacion de impacto ambiental positivo (segun reglas del prototipo)
 
-Estas funciones permiten evolucionar a un modelo de pagos mas formal y auditable en Postgres/Supabase SQL.
+## 5.4 Metricas de engagement
+- Puntos acumulados por perfil
+- Uso del modulo de recompensas
+- Frecuencia de participacion por tipo de usuario
 
-## 8. Estados operativos de recoleccion
-Estados observados en el flujo actual:
-- `available`: disponible para tomar
-- `pending`: asignada al recolector
-- `in-progress`: ruta iniciada por recolector
-- `arrived`: llegada registrada en centro (estado intermedio operativo)
-- `completed`: ciclo completado
-- `cancelled`: cancelada
+## 6. Valor para el cliente
+Este prototipo permite validar rapidamente una operacion digital de recoleccion con trazabilidad y control, reduciendo gestion manual y mejorando visibilidad para toma de decisiones.
 
-## 9. Seguridad y autorizacion
-- Todas las acciones sensibles validan token de usuario.
-- Las rutas del backend verifican rol antes de ejecutar acciones criticas.
-- El recolector solo puede operar recolecciones asignadas a su usuario.
-- El admin concentra operaciones de gestion global.
+Beneficios directos:
+- Mayor orden operativo
+- Evidencia documental por entrega
+- Mejor control de centros de acopio
+- Base de indicadores para escalar el modelo
 
-## 10. Componentes clave del proyecto
-- Panel recolector: `src/app/pages/CollectorDashboardPage.tsx`
-- Historial y comprobantes: `src/app/pages/HistoryPage.tsx`
-- Gestion de centros/inventario: `src/app/pages/AdminPointsPage.tsx`
-- API frontend: `src/app/services/api.ts`
-- Backend Edge Function: `supabase/functions/server/index.ts`
+## 7. Alcance actual del prototipo
+La solucion actual ya permite operar un ciclo funcional de punta a punta con roles diferenciados, registro de entregas, comprobantes e indicadores base.
 
-## 11. Operacion y despliegue
-- Frontend local (Windows PowerShell):
-  - `npm.cmd install`
-  - `npm.cmd run dev`
-- Deploy backend:
-  - `npx.cmd supabase functions deploy server --project-ref tqsjlywjyxgeixawlrcq --no-verify-jwt`
-
-## 12. Checklist rapido de validacion funcional
-
-### Recolector
-1. Tomar una recoleccion disponible.
-2. Iniciar ruta (estado `in-progress`).
-3. Presionar `Entrega completada`.
-4. Verificar que:
-   - se descargue comprobante PDF individual
-   - la recoleccion salga de activas
-   - aparezca en historial como completada
-
-### Admin / Centro
-1. Abrir centro de acopio usado por la entrega.
-2. Validar aumento de `currentLoad`.
-3. Confirmar nuevo registro de inventario asociado a la recoleccion.
-
-### Puntos
-1. Confirmar incremento de puntos en el perfil del recolector.
-2. Confirmar estadisticas actualizadas del usuario.
+En una fase posterior puede evolucionar con:
+- Tableros ejecutivos avanzados
+- Automatizaciones de negocio
+- Integraciones financieras y regulatorias
 
 ---
 Ultima actualizacion: 2026-03-08
