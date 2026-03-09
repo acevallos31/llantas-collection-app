@@ -63,6 +63,8 @@ export default function HomePage() {
   const [isScreenShareActive, setIsScreenShareActive] = useState(false);
   const requestPollRef = useRef<number | null>(null);
   const answerPollRef = useRef<number | null>(null);
+  const screenSharePollFailuresRef = useRef(0);
+  const screenSharePollDisabledRef = useRef(false);
 
   useEffect(() => {
     loadData();
@@ -254,9 +256,21 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!isGenerator) return;
+    if (screenSharePollDisabledRef.current) return;
 
     const sessionId = sessionStorage.getItem(ANALYTICS_SESSION_ID_KEY);
     if (!sessionId) return;
+
+    const stopRequestPolling = (notifyMessage?: string) => {
+      if (requestPollRef.current) {
+        window.clearInterval(requestPollRef.current);
+        requestPollRef.current = null;
+      }
+      screenSharePollDisabledRef.current = true;
+      if (notifyMessage) {
+        toast.info(notifyMessage);
+      }
+    };
 
     requestPollRef.current = window.setInterval(async () => {
       try {
@@ -264,6 +278,21 @@ export default function HomePage() {
           method: 'GET',
           headers: getAuthHeaders(true),
         });
+
+        if (!response.ok) {
+          if (response.status === 401 || response.status === 403) {
+            stopRequestPolling('Asistencia remota no disponible para esta sesión.');
+            return;
+          }
+
+          screenSharePollFailuresRef.current += 1;
+          if (screenSharePollFailuresRef.current >= 3) {
+            stopRequestPolling('Asistencia remota temporalmente no disponible.');
+          }
+          return;
+        }
+
+        screenSharePollFailuresRef.current = 0;
         const data = await response.json();
         const requestStatus = data?.request?.status;
 
@@ -277,17 +306,28 @@ export default function HomePage() {
         if (requestStatus !== 'pending') return;
 
         const accepted = window.confirm('El administrador solicita ver tu pantalla. Deseas compartirla ahora?');
-        await fetch(`${API_BASE_URL}/analytics/session/screen-share-request/${sessionId}/status`, {
+        const updateResp = await fetch(`${API_BASE_URL}/analytics/session/screen-share-request/${sessionId}/status`, {
           method: 'POST',
           headers: getAuthHeaders(true),
           body: JSON.stringify({ status: accepted ? 'accepted' : 'rejected' }),
         });
 
+        if (!updateResp.ok) {
+          screenSharePollFailuresRef.current += 1;
+          if (screenSharePollFailuresRef.current >= 3) {
+            stopRequestPolling('Asistencia remota temporalmente no disponible.');
+          }
+          return;
+        }
+
         if (accepted) {
           await startScreenShare(sessionId);
         }
-      } catch (error) {
-        console.error('Generator screen-share poll error:', error);
+      } catch {
+        screenSharePollFailuresRef.current += 1;
+        if (screenSharePollFailuresRef.current >= 3) {
+          stopRequestPolling('Asistencia remota temporalmente no disponible.');
+        }
       }
     }, 3500);
 
