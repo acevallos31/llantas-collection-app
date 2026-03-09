@@ -36,6 +36,7 @@ interface AdminSettings {
   maintenanceMode: boolean;
   rewardsEnabled: boolean;
   includeAdminAnalytics: boolean;
+  disableLocalAnalytics: boolean;
   serverTimezone: string;
 }
 
@@ -166,6 +167,7 @@ export default function AdminDashboardPage() {
     maintenanceMode: false,
     rewardsEnabled: true,
     includeAdminAnalytics: false,
+    disableLocalAnalytics: false,
     serverTimezone: 'America/Tegucigalpa',
   });
   const [savingSettings, setSavingSettings] = useState(false);
@@ -281,8 +283,12 @@ export default function AdminDashboardPage() {
         maintenanceMode: Boolean(settingsData?.maintenanceMode),
         rewardsEnabled: settingsData?.rewardsEnabled !== false,
         includeAdminAnalytics: Boolean(settingsData?.includeAdminAnalytics),
+        disableLocalAnalytics: Boolean(settingsData?.disableLocalAnalytics),
         serverTimezone: settingsData?.serverTimezone || settings.serverTimezone,
       });
+
+      // Keep local analytics behavior aligned with admin setting for this browser.
+      localStorage.setItem('ecolant_disable_local_analytics', String(Boolean(settingsData?.disableLocalAnalytics)));
       const safeAnalytics: AdminAnalytics = {
         totalVisits: Number(analyticsData?.totalVisits || 0),
         totalSessionDurationMs: Number(analyticsData?.totalSessionDurationMs || 0),
@@ -1865,6 +1871,21 @@ export default function AdminDashboardPage() {
                           onClick={() => setSettings({ ...settings, includeAdminAnalytics: !settings.includeAdminAnalytics })}
                         >
                           {settings.includeAdminAnalytics ? 'Sí' : 'No'}
+                        </Button>
+                      </div>
+
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm">Analitica en localhost</span>
+                        <Button
+                          size="sm"
+                          variant={settings.disableLocalAnalytics ? 'outline' : 'default'}
+                          onClick={() => {
+                            const nextDisable = !settings.disableLocalAnalytics;
+                            setSettings({ ...settings, disableLocalAnalytics: nextDisable });
+                            localStorage.setItem('ecolant_disable_local_analytics', String(nextDisable));
+                          }}
+                        >
+                          {settings.disableLocalAnalytics ? 'Deshabilitada' : 'Habilitada'}
                         </Button>
                       </div>
 

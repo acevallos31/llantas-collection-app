@@ -1442,9 +1442,10 @@ export const analyticsAPI = {
   isLocalAnalyticsDisabled() {
     if (typeof window === 'undefined') return false;
     const disableLocal = String(import.meta.env.VITE_DISABLE_LOCAL_ANALYTICS || '').toLowerCase() === 'true';
-    if (!disableLocal) return false;
+    const disableByLocalSetting = localStorage.getItem('ecolant_disable_local_analytics') === 'true';
     const host = window.location.hostname;
-    return host === 'localhost' || host === '127.0.0.1';
+    const isLocalhost = host === 'localhost' || host === '127.0.0.1';
+    return isLocalhost && (disableLocal || disableByLocalSetting);
   },
 
   async trackVisit(path: string, sessionId?: string) {

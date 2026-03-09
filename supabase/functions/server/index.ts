@@ -825,6 +825,7 @@ const getAppSettings = async () => {
     maintenanceMode: false,
     rewardsEnabled: true,
     includeAdminAnalytics: false,
+    disableLocalAnalytics: false,
     serverTimezone: 'America/Tegucigalpa',
   };
   const stored = await kv.get('app:settings');
