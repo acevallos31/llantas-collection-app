@@ -13,6 +13,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.
 import { Loader2, Store, Plus, Trash2, Save, Pencil, Camera, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 
+const marketplaceStatusLabel: Record<string, string> = {
+  available: 'Disponible',
+  pending: 'Pendiente',
+  'in-progress': 'En ruta',
+  'picked-up': 'Recogido',
+  confirmed: 'Confirmado',
+  delivered: 'Entregado',
+  cancelled: 'Cancelado',
+};
+
+const getMarketplaceStatusLabel = (status: string) => marketplaceStatusLabel[status] || status;
+
 const defaultForm = {
   name: '',
   description: '',
@@ -189,6 +201,21 @@ export default function AdminMarketplacePage() {
     }
   };
 
+  const handleResetProducts = async () => {
+    if (!window.confirm('¿Resetear todos los productos del marketplace? Esta acción eliminará y recreará todos los 59 productos con nuevas imágenes diferentes.')) return;
+
+    try {
+      setLoading(true);
+      const result = await marketplaceAPI.adminResetProducts();
+      toast.success(`Productos regenerados exitosamente. Total: ${result.count}`);
+      await loadData();
+    } catch (error: any) {
+      toast.error(error.message || 'No se pudieron resetear los productos');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!isAdmin) {
     return (
       <div className="min-h-screen bg-gray-50 p-4">
@@ -359,6 +386,23 @@ export default function AdminMarketplacePage() {
                 </div>
               </Card>
 
+              <Card className="p-4 bg-amber-50 border-amber-200">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h3 className="font-semibold text-amber-900">Regenerar productos del marketplace</h3>
+                    <p className="text-sm text-amber-700 mt-1">Elimina y recrea todos los productos con 59 imágenes diferentes variadas</p>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    className="border-amber-400 text-amber-700 hover:bg-amber-100"
+                    onClick={() => void handleResetProducts()}
+                    disabled={loading || submitting}
+                  >
+                    Resetear Productos
+                  </Button>
+                </div>
+              </Card>
+
               <div className="space-y-3">
                 {products.map((item) => (
                   <Card key={item.id} className="p-4">
@@ -403,7 +447,7 @@ export default function AdminMarketplacePage() {
                           : `Entrega en centro: ${order.pointName || 'N/A'}`}
                       </p>
                     </div>
-                    <Badge variant="outline">{order.status}</Badge>
+                    <Badge variant="outline">{getMarketplaceStatusLabel(order.status)}</Badge>
                   </div>
 
                   <div className="mt-3 flex flex-wrap gap-2">

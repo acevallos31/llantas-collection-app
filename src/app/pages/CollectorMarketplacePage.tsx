@@ -7,8 +7,21 @@ import type { MarketplaceOrder } from '../mockData.js';
 import { Card } from '../components/ui/card.js';
 import { Button } from '../components/ui/button.js';
 import { Badge } from '../components/ui/badge.js';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
 import { Loader2, Truck, PackageCheck, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
+
+const marketplaceStatusLabel: Record<string, string> = {
+  available: 'Disponible',
+  pending: 'Pendiente',
+  'in-progress': 'En ruta',
+  'picked-up': 'Recogido',
+  confirmed: 'Confirmado',
+  delivered: 'Entregado',
+  cancelled: 'Cancelado',
+};
+
+const getMarketplaceStatusLabel = (status: string) => marketplaceStatusLabel[status] || status;
 
 export default function CollectorMarketplacePage() {
   const navigate = useNavigate();
@@ -22,7 +35,7 @@ export default function CollectorMarketplacePage() {
   const loadOrders = async () => {
     try {
       setLoading(true);
-      const data = await marketplaceAPI.collectorGetAvailableOrders();
+      const data = await marketplaceAPI.collectorGetAvailableOrders(true);
       setOrders(data || []);
     } catch (error: any) {
       toast.error(error.message || 'No se pudieron cargar entregas marketplace');
@@ -37,6 +50,14 @@ export default function CollectorMarketplacePage() {
 
   const myOrders = useMemo(() => orders.filter((item) => item.collectorId === user?.id), [orders, user?.id]);
   const availableOrders = useMemo(() => orders.filter((item) => item.status === 'available'), [orders]);
+  const myRouteOrders = useMemo(
+    () => myOrders.filter((item) => ['pending', 'in-progress', 'picked-up'].includes(String(item.status))),
+    [myOrders],
+  );
+  const historyOrders = useMemo(
+    () => myOrders.filter((item) => ['delivered', 'cancelled'].includes(String(item.status))),
+    [myOrders],
+  );
 
   const generateReceipt = (order: MarketplaceOrder, type: 'pickup' | 'delivery') => {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -159,50 +180,68 @@ export default function CollectorMarketplacePage() {
         ) : orders.length === 0 ? (
           <Card className="p-4 text-center text-gray-600">No hay entregas marketplace activas.</Card>
         ) : (
-          orders.map((order) => {
-            const isMine = order.collectorId === user?.id;
-            return (
-              <Card key={order.id} className="p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-semibold">{order.productName}</p>
-                    <p className="text-sm text-gray-600">Cliente: {order.buyerName || order.buyerId}</p>
-                    <p className="text-sm text-gray-600">Centro: {order.pointName || 'N/A'}</p>
-                    <p className="text-sm text-gray-600">Llantas: {order.quantity} • Total: L {Number(order.totalAmount || 0).toFixed(2)}</p>
-                    {order.pickupReceipt?.code && <p className="text-xs text-emerald-700">Retiro: {order.pickupReceipt.code}</p>}
-                    {order.deliveryReceipt?.code && <p className="text-xs text-blue-700">Entrega: {order.deliveryReceipt.code}</p>}
-                  </div>
-                  <Badge variant="outline">{order.status}</Badge>
-                </div>
+          <Tabs defaultValue="route" className="space-y-4">
+            <TabsList className="grid grid-cols-3">
+              <TabsTrigger value="available">Disponibles ({availableOrders.length})</TabsTrigger>
+              <TabsTrigger value="route">Mi ruta ({myRouteOrders.length})</TabsTrigger>
+              <TabsTrigger value="history">Historial ({historyOrders.length})</TabsTrigger>
+            </TabsList>
 
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {order.status === 'available' && (
-                    <Button onClick={() => void takeOrder(order.id)} disabled={Boolean(updatingId)} className="bg-blue-600 hover:bg-blue-700">
-                      {updatingId === order.id ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Tomar entrega'}
-                    </Button>
-                  )}
+            {[
+              { key: 'available', data: availableOrders },
+              { key: 'route', data: myRouteOrders },
+              { key: 'history', data: historyOrders },
+            ].map((section) => (
+              <TabsContent key={section.key} value={section.key} className="space-y-3">
+                {section.data.length === 0 ? (
+                  <Card className="p-4 text-center text-gray-600">No hay entregas en esta sección.</Card>
+                ) : section.data.map((order) => {
+                  const isMine = order.collectorId === user?.id;
+                  return (
+                    <Card key={order.id} className="p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-semibold">{order.productName}</p>
+                          <p className="text-sm text-gray-600">Cliente: {order.buyerName || order.buyerId}</p>
+                          <p className="text-sm text-gray-600">Centro: {order.pointName || 'N/A'}</p>
+                          <p className="text-sm text-gray-600">Llantas: {order.quantity} • Total: L {Number(order.totalAmount || 0).toFixed(2)}</p>
+                          {order.pickupReceipt?.code && <p className="text-xs text-emerald-700">Retiro: {order.pickupReceipt.code}</p>}
+                          {order.deliveryReceipt?.code && <p className="text-xs text-blue-700">Entrega: {order.deliveryReceipt.code}</p>}
+                        </div>
+                        <Badge variant="outline">{getMarketplaceStatusLabel(order.status)}</Badge>
+                      </div>
 
-                  {isMine && order.status === 'pending' && (
-                    <Button onClick={() => void updateStatus(order, 'in-progress')} disabled={Boolean(updatingId)}>
-                      <Truck className="w-4 h-4 mr-1" /> Iniciar ruta
-                    </Button>
-                  )}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {order.status === 'available' && (
+                          <Button onClick={() => void takeOrder(order.id)} disabled={Boolean(updatingId)} className="bg-blue-600 hover:bg-blue-700">
+                            {updatingId === order.id ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Tomar entrega'}
+                          </Button>
+                        )}
 
-                  {isMine && (order.status === 'pending' || order.status === 'in-progress') && (
-                    <Button onClick={() => void updateStatus(order, 'picked-up')} disabled={Boolean(updatingId)} className="bg-amber-600 hover:bg-amber-700">
-                      <PackageCheck className="w-4 h-4 mr-1" /> Recoger en centro
-                    </Button>
-                  )}
+                        {isMine && order.status === 'pending' && (
+                          <Button onClick={() => void updateStatus(order, 'in-progress')} disabled={Boolean(updatingId)}>
+                            <Truck className="w-4 h-4 mr-1" /> Iniciar ruta
+                          </Button>
+                        )}
 
-                  {isMine && order.status === 'picked-up' && (
-                    <Button onClick={() => void updateStatus(order, 'delivered')} disabled={Boolean(updatingId)} className="bg-green-600 hover:bg-green-700">
-                      <CheckCircle2 className="w-4 h-4 mr-1" /> Entregar al cliente
-                    </Button>
-                  )}
-                </div>
-              </Card>
-            );
-          })
+                        {isMine && (order.status === 'pending' || order.status === 'in-progress') && (
+                          <Button onClick={() => void updateStatus(order, 'picked-up')} disabled={Boolean(updatingId)} className="bg-amber-600 hover:bg-amber-700">
+                            <PackageCheck className="w-4 h-4 mr-1" /> Recoger en centro
+                          </Button>
+                        )}
+
+                        {isMine && order.status === 'picked-up' && (
+                          <Button onClick={() => void updateStatus(order, 'delivered')} disabled={Boolean(updatingId)} className="bg-green-600 hover:bg-green-700">
+                            <CheckCircle2 className="w-4 h-4 mr-1" /> Entregar al cliente
+                          </Button>
+                        )}
+                      </div>
+                    </Card>
+                  );
+                })}
+              </TabsContent>
+            ))}
+          </Tabs>
         )}
       </div>
     </div>

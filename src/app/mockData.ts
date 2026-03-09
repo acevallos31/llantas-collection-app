@@ -45,6 +45,8 @@ export interface MarketplaceOrder {
   productName: string;
   buyerId: string;
   buyerName?: string;
+  buyerAddress?: string;
+  buyerCoordinates?: { lat: number; lng: number };
   items?: Array<{
     productId: string;
     productName: string;
@@ -76,6 +78,11 @@ export interface MarketplaceOrder {
     code: string;
     createdAt: string;
     deliveredTo?: string | null;
+  };
+  deliveredAt?: string;
+  customerNotification?: {
+    message: string;
+    createdAt: string;
   };
   notes?: string;
   createdAt: string;

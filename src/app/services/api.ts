@@ -783,6 +783,19 @@ export const marketplaceAPI = {
     }
   },
 
+  async adminResetProducts(): Promise<{ message: string; count: number }> {
+    const response = await fetch(`${API_BASE_URL}/admin/marketplace/reset-products`, {
+      method: 'POST',
+      headers: getAuthHeaders(true),
+    });
+
+    const result = await parseResponseBody(response);
+    if (!response.ok) {
+      throw new Error(resolveErrorMessage(result, 'Error al resetear productos marketplace'));
+    }
+    return result as { message: string; count: number };
+  },
+
   async adminGetOrders(): Promise<MarketplaceOrder[]> {
     const response = await fetch(`${API_BASE_URL}/admin/marketplace/orders`, {
       method: 'GET',
@@ -810,8 +823,9 @@ export const marketplaceAPI = {
     return result as MarketplaceOrder;
   },
 
-  async collectorGetAvailableOrders(): Promise<MarketplaceOrder[]> {
-    const response = await fetch(`${API_BASE_URL}/collector/marketplace-orders`, {
+  async collectorGetAvailableOrders(includeHistory = false): Promise<MarketplaceOrder[]> {
+    const endpoint = `${API_BASE_URL}/collector/marketplace-orders${includeHistory ? '?includeHistory=true' : ''}`;
+    const response = await fetch(endpoint, {
       method: 'GET',
       headers: getAuthHeaders(true),
     });

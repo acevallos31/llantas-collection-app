@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext.tsx';
-import { collectorAPI, collectionsAPI, pointsAPI } from '../services/api.js';
+import { collectorAPI, collectionsAPI, marketplaceAPI, pointsAPI } from '../services/api.js';
 import type { Collection, CollectionPoint } from '../mockData.ts';
 import CollectionMap from '../components/CollectionMap.tsx';
 import { Card } from '../components/ui/card.tsx';
@@ -23,13 +23,16 @@ import { jsPDF } from 'jspdf';
 import { API_BASE_URL, getAuthHeaders, ANALYTICS_SESSION_ID_KEY } from '../services/api.js';
 
 type RouteSuggestion = {
+  routeType?: 'collection' | 'marketplace';
   collectionId: string;
   collectionStatus: string;
   pickupAddress: string;
+  pickupCoordinates?: { lat: number; lng: number };
   dropoffPoint: {
     id: string;
     name: string;
     address: string;
+    coordinates?: { lat: number; lng: number };
   };
   tireCount: number;
   tireType: string;
@@ -771,13 +774,21 @@ export default function CollectorDashboardPage() {
 
       for (const item of items) {
         try {
+          if (item.routeType === 'marketplace') {
+            if (String(item.collectionStatus || '').toLowerCase() === 'available') {
+              await marketplaceAPI.collectorTakeOrder(item.collectionId);
+            }
+            taken += 1;
+            continue;
+          }
+
           await collectorAPI.takeCollection(item.collectionId, {
             collectorFreight: item.estimatedCompensation.collectorFreight,
             collectorBonusPoints: item.estimatedCompensation.collectorBonusPoints,
           });
           taken += 1;
         } catch (error: any) {
-          const message = String(error?.message || 'No se pudo tomar la recoleccion');
+          const message = String(error?.message || 'No se pudo tomar la parada de ruta');
           if (message.toLowerCase().includes('no longer available') || message.toLowerCase().includes('taken by another')) {
             conflicts += 1;
           } else {
@@ -950,6 +961,7 @@ export default function CollectorDashboardPage() {
                       && !manuallyAddedRouteItemsFromSuggestions.some((item) => item.collectionId === collection.id);
                   })
                   .map((collection) => ({
+                    routeType: 'collection' as const,
                     collectionId: collection.id,
                     collectionStatus: collection.status,
                     pickupAddress: collection.address,
@@ -1012,11 +1024,17 @@ export default function CollectorDashboardPage() {
                                 <p className={`text-sm font-medium ${isRemoved ? 'line-through text-gray-600' : 'text-blue-900'}`}>
                                   Parada {idx + 1}: {item.tireCount} llantas ({item.tireType})
                                 </p>
-                                <p className="text-xs text-gray-600">{item.pickupAddress}</p>
-                                {idx === allRouteItems.length - 1 && !isRemoved && (
-                                  <p className="text-xs text-emerald-700 mt-1">
-                                    →  {item.dropoffPoint.name}
-                                  </p>
+                                {item.routeType === 'marketplace' ? (
+                                  <>
+                                    <p className="text-xs text-purple-700 font-medium">📦 Entrega Marketplace</p>
+                                    <p className="text-xs text-gray-600">🏢 Recoger: {item.pickupAddress}</p>
+                                    <p className="text-xs text-emerald-700">→ Entregar a: {item.dropoffPoint.name}</p>
+                                  </>
+                                ) : (
+                                  <>
+                                    <p className="text-xs text-gray-600">📍 Recoger: {item.pickupAddress}</p>
+                                    <p className="text-xs text-emerald-700">→ Llevar a: {item.dropoffPoint.name}</p>
+                                  </>
                                 )}
                                 <div className="flex items-center gap-2 mt-1">
                                   <span className="text-xs font-semibold text-emerald-600">
@@ -1034,9 +1052,9 @@ export default function CollectorDashboardPage() {
                                   size="sm"
                                   variant="ghost"
                                   className="h-6 px-1 text-xs text-blue-600 hover:text-blue-800"
-                                  onClick={() => navigate(`/history/${item.collectionId}`)}
+                                  onClick={() => navigate(item.routeType === 'marketplace' ? '/collector-marketplace' : `/history/${item.collectionId}`)}
                                 >
-                                  Ver
+                                  {item.routeType === 'marketplace' ? 'Ver entrega' : 'Ver'}
                                 </Button>
                                 <Button
                                   size="sm"
@@ -1113,11 +1131,41 @@ export default function CollectorDashboardPage() {
                           <div className="mb-3 rounded-lg overflow-hidden border border-gray-300">
                             <CollectionMap
                               points={[]}
-                              collections={routeItems.map(item => ({
-                                ...(collections.find(c => c.id === item.collectionId) || {}),
-                                id: item.collectionId,
-                                address: item.pickupAddress,
-                              } as any))}
+                              collections={routeItems.flatMap(item => {
+                                if (item.routeType === 'marketplace') {
+                                  // Entregas marketplace: mostrar punto de pickup (centro) y delivery (cliente)
+                                  const pickupPoint = {
+                                    id: `${item.collectionId}-pickup`,
+                                    address: item.pickupAddress,
+                                    coordinates: item.pickupCoordinates || { lat: 0, lng: 0 },
+                                    tireCount: item.tireCount,
+                                    tireType: `🏢 Pickup ${item.tireType}`,
+                                    status: 'marketplace-pickup',
+                                  } as any;
+                                  
+                                  // Solo agregar punto de delivery si tiene coordenadas
+                                  if (item.dropoffPoint.coordinates) {
+                                    const deliveryPoint = {
+                                      id: `${item.collectionId}-delivery`,
+                                      address: item.dropoffPoint.address,
+                                      coordinates: item.dropoffPoint.coordinates,
+                                      tireCount: item.tireCount,
+                                      tireType: `📦 Entrega a ${item.dropoffPoint.name}`,
+                                      status: 'marketplace-delivery',
+                                    } as any;
+                                    return [pickupPoint, deliveryPoint];
+                                  }
+                                  
+                                  return [pickupPoint];
+                                } else {
+                                  // Recolecciones normales: mostrar punto de pickup
+                                  return [{
+                                    ...(collections.find(c => c.id === item.collectionId) || {}),
+                                    id: item.collectionId,
+                                    address: item.pickupAddress,
+                                  } as any];
+                                }
+                              })}
                               userLocation={collectorLocation}
                               heightClassName="h-[300px]"
                               showRouteTrace={true}

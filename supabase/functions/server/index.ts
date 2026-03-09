@@ -174,23 +174,75 @@ const MARKETPLACE_PHOTOS = {
   automovil: [
     'https://images.unsplash.com/photo-1549399542-7e82138f06f8?auto=format&fit=crop&w=1200&q=80',
     'https://images.unsplash.com/photo-1511919884226-fd3cad34687c?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1605559424843-9e4c228bf1c2?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1562911791-c7a97b729ec5?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1615906655593-ad0386982a0f?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1617814076367-b759c7d7e738?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1606577924006-27d39b132ae2?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1546768292-fb12f6c92568?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1593941707882-a5bba14938c7?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1568605117036-5fe5e7bab0b7?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1525609004556-c46c7d6cf023?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1502877338535-766e1452684a?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1542362567-b07e54358753?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1583121274602-3e2820c69888?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?auto=format&fit=crop&w=1200&q=80',
   ],
   camion: [
     'https://images.unsplash.com/photo-1580273916550-e323be2ae537?auto=format&fit=crop&w=1200&q=80',
     'https://images.unsplash.com/photo-1501700493788-fa1a4fc9fe62?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1591768793355-74d04bb6608f?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1611074869632-c61a94c8cb81?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1532974297617-c0f05fe48bff?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1519003722824-194d4455a60c?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1513639776629-7b61b0ac49cb?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1527786356703-4b100091cd2c?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1566933293069-b55c7f326dd4?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1601584115197-04ecc0da31d7?auto=format&fit=crop&w=1200&q=80',
   ],
   autobus: [
     'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1570125909232-eb263c188f7e?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1577648188599-291bb8b831c3?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1584864649753-0d5d48d5d991?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1597404294360-fede27d3d4eb?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1596023185043-c1c5c3f5f0d3?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1588767232725-c47c2a65fd82?auto=format&fit=crop&w=1200&q=80',
   ],
   motocicleta: [
     'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?auto=format&fit=crop&w=1200&q=80',
     'https://images.unsplash.com/photo-1519751138087-5bf79df62d5b?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1609630875171-b1321377ee65?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1599819177924-49c7b8d40e1c?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1558618666-b8b8c9b7c2b4?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1568772585407-9361f9bf3a87?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1547549082-6bc09f2869ae?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1558981852-426c6c22a060?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1604574450956-471c89fb2d03?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1609342122563-a43ac8917a3a?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1605553911732-c43a65e27995?auto=format&fit=crop&w=1200&q=80',
   ],
   bicicleta: [
     'https://images.unsplash.com/photo-1511994298241-608e28f14fde?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1571068316344-75bc76f77890?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1571333250630-f0230c320b6d?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1576858574144-9ae1ebcf5ae5?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1532298229144-0ec0c57515c7?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1605100804763-247f67b3557e?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1621950519808-63e5f7c9e9c4?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1517649763962-0c623066013b?auto=format&fit=crop&w=1200&q=80',
   ],
   reciclaje: [
     'https://images.unsplash.com/photo-1613145997970-db84a7975fbb?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1604187351574-c75ca79f5807?auto=format&fit=crop&w=1200&q=80',
   ],
 };
 
@@ -282,6 +334,10 @@ const ensureMarketplaceSeed = async () => {
       const price = Math.round(basePrice * priceMultiplier);
       const lotSize = config.type === 'Automovil' && i % 4 === 0 ? 4 : config.type === 'Camion' && i % 3 === 0 ? 2 : 1;
       const stock = Math.max(1, 5 + (i % 10));
+      
+      // Seleccionar foto específica para este producto (rotar entre las disponibles)
+      const photoIndex = i % config.photos.length;
+      const productPhoto = config.photos[photoIndex];
 
       demoProducts.push({
         name: `Llanta ${config.type} ${numeration} ${brand} ${model} - ${condition === 'excelente' ? 'Excelente' : 'Buena'}${lotSize > 1 ? ` (Lote x${lotSize})` : ''}`,
@@ -297,7 +353,7 @@ const ensureMarketplaceSeed = async () => {
         stock: stock,
         sellerType: i % 3 === 0 ? 'collector' : i % 3 === 1 ? 'mixed' : 'point',
         marketType: 'resale',
-        photos: config.photos,
+        photo: productPhoto,
       });
     }
   }
@@ -317,7 +373,7 @@ const ensureMarketplaceSeed = async () => {
     stock: 20,
     sellerType: 'point',
     marketType: 'recycling',
-    photos: MARKETPLACE_PHOTOS.reciclaje,
+    photo: MARKETPLACE_PHOTOS.reciclaje[0],
   });
 
   // Guardar todos los productos
@@ -339,8 +395,8 @@ const ensureMarketplaceSeed = async () => {
       numeration: seed.numeration || seed.tireSize || 'N/A',
       lotSize: Number(seed.lotSize || 1),
       tireCondition: seed.tireCondition,
-      photoUrl: Array.isArray(seed.photos) ? seed.photos[0] : null,
-      photoUrls: Array.isArray(seed.photos) ? seed.photos : [],
+      photoUrl: seed.photo || null,
+      photoUrls: seed.photo ? [seed.photo] : [],
       marketType: seed.marketType || 'resale',
       price: Number(seed.price || 0),
       stock: Math.max(0, Number(seed.stock || 0)),
@@ -4803,10 +4859,12 @@ app.get('/server/collector/routes/suggestions', async (c) => {
 
     const pricing = await getPricingSettings();
     const collections = await kv.getByPrefix('collection:');
+    const marketplaceOrders = await kv.getByPrefix('marketplace:order:');
     const pointsRaw = await kv.getByPrefix('point:');
     const points = pointsRaw.map(withPointStatus);
 
     console.log(`[Route Suggestions] Collections in KV: ${collections.length}`);
+    console.log(`[Route Suggestions] Marketplace orders in KV: ${marketplaceOrders.length}`);
     console.log(`[Route Suggestions] Collection points: ${points.length}`);
 
     const { data: collectorRatesData } = await supabase
@@ -4863,7 +4921,7 @@ app.get('/server/collector/routes/suggestions', async (c) => {
 
     console.log(`[Route Suggestions] Actionable collections: ${actionableCollections.length}`);
 
-    const suggestions = actionableCollections
+    const collectionSuggestions = actionableCollections
       .map((collection: any) => {
         const collectionCoords = collection?.coordinates;
         const hasValidCoords = collectionCoords && Number.isFinite(Number(collectionCoords.lat)) && Number.isFinite(Number(collectionCoords.lng));
@@ -4936,6 +4994,7 @@ app.get('/server/collector/routes/suggestions', async (c) => {
             : 'Prioridad baja';
 
         return {
+          routeType: 'collection',
           collectionId: collection.id,
           collectionStatus: collection.status,
           pickupAddress: collection.address || 'Sin direccion',
@@ -4967,20 +5026,113 @@ app.get('/server/collector/routes/suggestions', async (c) => {
           },
         };
       })
-      .filter(Boolean)
+      .filter(Boolean);
+
+    const pointMap = new Map(points.map((point: any) => [point.id, point]));
+    const actionableMarketplaceOrders = marketplaceOrders.filter((order: any) => {
+      if (order?.fulfillmentType !== 'collector') return false;
+      const status = String(order?.status || '').toLowerCase();
+      const assignedToMe = order?.collectorId === user.id;
+
+      if (status === 'available') return true;
+      if (assignedToMe && ['pending', 'in-progress', 'picked-up'].includes(status)) return true;
+      return false;
+    });
+
+    const marketplaceSuggestions = actionableMarketplaceOrders
+      .map((order: any) => {
+        const originPoint = order?.pointId ? pointMap.get(order.pointId) : null;
+        const originCoords = originPoint?.coordinates;
+        const hasOriginCoords = originCoords
+          && Number.isFinite(Number(originCoords.lat))
+          && Number.isFinite(Number(originCoords.lng));
+
+        if (!hasOriginCoords) {
+          console.log(`[Route Suggestions] Skipping marketplace order ${order.id} - no origin coordinates`);
+          return null;
+        }
+
+        // Calcular distancia: recolector → centro origen → cliente (delivery)
+        const collectorToPickupKm = haversineKm(collectorOrigin, { lat: Number(originCoords.lat), lng: Number(originCoords.lng) });
+        
+        // Distancia del centro origen al cliente
+        let pickupToClientKm = 5.0; // Distancia aproximada por defecto
+        const clientCoords = order?.buyerCoordinates;
+        const hasClientCoords = clientCoords
+          && Number.isFinite(Number(clientCoords.lat))
+          && Number.isFinite(Number(clientCoords.lng));
+        
+        if (hasClientCoords) {
+          pickupToClientKm = haversineKm(
+            { lat: Number(originCoords.lat), lng: Number(originCoords.lng) },
+            { lat: Number(clientCoords.lat), lng: Number(clientCoords.lng) }
+          );
+        }
+        
+        const totalRouteKm = collectorToPickupKm + pickupToClientKm;
+
+        const orderAmount = Number(order?.totalAmount || 0);
+        const collectorFreight = Number((orderAmount * 0.08).toFixed(2));
+        const collectorBonusPoints = Math.max(0, Math.round(Number(order?.quantity || 0) * 2));
+        const rewardValue = collectorBonusPoints * 0.25;
+        const valueScore = Number((collectorFreight + rewardValue).toFixed(3));
+        const routeScore = Number((totalRouteKm / Math.max(valueScore, 1)).toFixed(4));
+        const recommendation = String(order?.status || '').toLowerCase() === 'available'
+          ? `Entrega marketplace: recoger de ${originPoint.name} y entregar al cliente`
+          : 'Entrega marketplace ya asignada en tu ruta';
+
+        return {
+          routeType: 'marketplace',
+          collectionId: order.id,
+          collectionStatus: order.status,
+          pickupAddress: originPoint?.address || order?.pointName || 'Centro de acopio origen',
+          pickupCoordinates: { lat: Number(originCoords.lat), lng: Number(originCoords.lng) },
+          dropoffPoint: {
+            id: order?.buyerId || 'cliente',
+            name: order?.buyerName || 'Cliente marketplace',
+            address: order?.buyerAddress || 'Dirección del cliente',
+            coordinates: hasClientCoords ? { lat: Number(clientCoords.lat), lng: Number(clientCoords.lng) } : undefined,
+          },
+          tireCount: Number(order?.quantity || 0),
+          tireType: order?.items?.[0]?.tireType || 'Marketplace',
+          tireCondition: order?.items?.[0]?.tireCondition || 'buena',
+          distance: {
+            collectorToPickupKm: Number(collectorToPickupKm.toFixed(2)),
+            pickupToPointKm: Number(pickupToClientKm.toFixed(2)),
+            totalKm: Number(totalRouteKm.toFixed(2)),
+          },
+          estimatedCompensation: {
+            currency: pricing.currency || 'HNL',
+            generatorPerTire: 0,
+            generatorTotal: 0,
+            collectorFreight,
+            collectorBonusPoints,
+            generatorRewardValue: rewardValue,
+          },
+          optimization: {
+            routeScore,
+            valueScore,
+            recommendation,
+          },
+        };
+      })
+      .filter(Boolean);
+
+    const suggestions = [...collectionSuggestions, ...marketplaceSuggestions]
       .sort((a: any, b: any) => {
-        if (a.collectionStatus === 'available' && b.collectionStatus !== 'available') return -1;
-        if (a.collectionStatus !== 'available' && b.collectionStatus === 'available') return 1;
+        const aAvailable = String(a.collectionStatus || '') === 'available' ? 1 : 0;
+        const bAvailable = String(b.collectionStatus || '') === 'available' ? 1 : 0;
+        if (aAvailable !== bAvailable) return bAvailable - aAvailable;
         return Number(a.optimization.routeScore) - Number(b.optimization.routeScore);
       })
       .slice(0, maxStops);
 
-    console.log(`[Route Suggestions API] Generated ${suggestions.length} suggestions from ${actionableCollections.length} candidates`);
+    console.log(`[Route Suggestions API] Generated ${suggestions.length} suggestions from ${actionableCollections.length + actionableMarketplaceOrders.length} candidates`);
 
     return c.json({
       origin: collectorOrigin,
       pricing,
-      totalCandidates: actionableCollections.length,
+      totalCandidates: actionableCollections.length + actionableMarketplaceOrders.length,
       suggestions,
       generatedAt: new Date().toISOString(),
     });
@@ -6138,6 +6290,8 @@ app.post('/server/marketplace/orders', async (c) => {
       productName: firstItem?.productName || 'Carrito marketplace',
       buyerId: user.id,
       buyerName: userProfile.name || null,
+      buyerAddress: userProfile.address || null,
+      buyerCoordinates: userProfile.coordinates || null,
       items: orderItems,
       quantity: totalQuantity,
       unitPrice: Number(firstItem?.unitPrice || 0),
@@ -6296,6 +6450,32 @@ app.delete('/server/admin/marketplace/products/:productId', async (c) => {
   }
 });
 
+// Endpoint para resetear todos los productos del marketplace y regenerarlos
+app.post('/server/admin/marketplace/reset-products', async (c) => {
+  const adminCheck = await requireAdmin(c);
+  if (adminCheck.error) return adminCheck.error;
+
+  try {
+    // Eliminar todos los productos existentes
+    const existingProducts = await kv.getByPrefix('marketplace:product:');
+    for (const product of existingProducts) {
+      await kv.del(`marketplace:product:${product.id}`);
+    }
+
+    // Regenerar productos llamando a ensureMarketplaceSeed
+    await ensureMarketplaceSeed();
+
+    const newProducts = await kv.getByPrefix('marketplace:product:');
+    return c.json({ 
+      message: 'Marketplace products reset successfully', 
+      count: newProducts.length 
+    });
+  } catch (error) {
+    console.log(`Admin reset marketplace products error: ${error}`);
+    return c.json({ error: 'Error resetting marketplace products' }, 500);
+  }
+});
+
 app.get('/server/admin/marketplace/orders', async (c) => {
   const adminCheck = await requireAdmin(c);
   if (adminCheck.error) return adminCheck.error;
@@ -6357,11 +6537,13 @@ app.get('/server/collector/marketplace-orders', async (c) => {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
+    const includeHistory = String(c.req.query('includeHistory') || '').toLowerCase() === 'true';
     const orders = await kv.getByPrefix('marketplace:order:');
     const actionable = orders.filter((item: any) => {
       if (item?.fulfillmentType !== 'collector') return false;
       if (item?.status === 'available') return true;
       if (item?.collectorId === user.id && ['pending', 'in-progress', 'picked-up'].includes(String(item?.status || ''))) return true;
+      if (includeHistory && item?.collectorId === user.id && ['delivered', 'cancelled'].includes(String(item?.status || ''))) return true;
       return false;
     });
 
@@ -6442,10 +6624,16 @@ app.put('/server/collector/marketplace-orders/:orderId/status', async (c) => {
     }
 
     if (nextStatus === 'delivered') {
+      const customerMessage = `Tu pedido ${orderId.slice(0, 8).toUpperCase()} fue entregado correctamente por ${userProfile.name || 'el recolector'}.`;
       updated.deliveryReceipt = {
         code: `DROP-${orderId.slice(0, 8).toUpperCase()}`,
         createdAt: now,
         deliveredTo: order.buyerName || null,
+      };
+      updated.deliveredAt = now;
+      updated.customerNotification = {
+        message: customerMessage,
+        createdAt: now,
       };
     }
 

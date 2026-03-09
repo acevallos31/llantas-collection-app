@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router';
+import { jsPDF } from 'jspdf';
 import { useAuth } from '../contexts/AuthContext.js';
 import { marketplaceAPI } from '../services/api.js';
 import type { MarketplaceOrder, MarketplaceProduct } from '../mockData.js';
@@ -10,8 +11,20 @@ import { Label } from '../components/ui/label.js';
 import { Textarea } from '../components/ui/textarea.js';
 import { Badge } from '../components/ui/badge.js';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs.js';
-import { Loader2, ShoppingCart, Store, Truck, MapPin, Plus, Minus, X, ChevronLeft, Info } from 'lucide-react';
+import { Loader2, ShoppingCart, Store, Truck, MapPin, Plus, Minus, X, ChevronLeft, Info, Download, CheckCircle2 } from 'lucide-react';
 import { toast } from 'sonner';
+
+const marketplaceStatusLabel: Record<string, string> = {
+  available: 'Disponible',
+  pending: 'Pendiente',
+  'in-progress': 'En ruta',
+  'picked-up': 'Recogido',
+  confirmed: 'Confirmado',
+  delivered: 'Entregado',
+  cancelled: 'Cancelado',
+};
+
+const getMarketplaceStatusLabel = (status: string) => marketplaceStatusLabel[status] || status;
 
 type CartItem = {
   productId: string;
@@ -98,6 +111,84 @@ export default function MarketplacePage() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    if (!user?.id || orders.length === 0) return;
+
+    const storageKey = `ecolant_seen_marketplace_notifications_${user.id}`;
+    let seen = new Set<string>();
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) seen = new Set(JSON.parse(raw));
+    } catch {
+      seen = new Set<string>();
+    }
+
+    let changed = false;
+    orders.forEach((order) => {
+      const notification = order.customerNotification;
+      if (!notification) return;
+      if (seen.has(order.id)) return;
+
+      toast.success(notification.message);
+      seen.add(order.id);
+      changed = true;
+    });
+
+    if (changed) {
+      localStorage.setItem(storageKey, JSON.stringify(Array.from(seen)));
+    }
+  }, [orders, user?.id]);
+
+  const downloadDeliveryReceipt = (order: MarketplaceOrder) => {
+    if (!order.deliveryReceipt) {
+      toast.error('Este pedido aún no tiene comprobante de entrega');
+      return;
+    }
+
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    let y = 18;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.text('Comprobante de Entrega Marketplace', 15, y);
+    y += 10;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    const rows = [
+      `Codigo: ${order.deliveryReceipt.code}`,
+      `Orden: ${order.id}`,
+      `Cliente: ${order.buyerName || order.buyerId}`,
+      `Recolector: ${order.collectorName || 'N/A'}`,
+      `Centro: ${order.pointName || 'N/A'}`,
+      `Total llantas: ${order.quantity}`,
+      `Monto total: L ${Number(order.totalAmount || 0).toFixed(2)}`,
+      `Fecha entrega: ${new Date(order.deliveryReceipt.createdAt).toLocaleString('es-HN')}`,
+    ];
+
+    rows.forEach((line) => {
+      const wrapped = doc.splitTextToSize(line, 180);
+      doc.text(wrapped, 15, y);
+      y += wrapped.length * 6;
+    });
+
+    if (Array.isArray(order.items) && order.items.length > 0) {
+      y += 4;
+      doc.setFont('helvetica', 'bold');
+      doc.text('Detalle:', 15, y);
+      y += 6;
+      doc.setFont('helvetica', 'normal');
+      order.items.forEach((item) => {
+        const detail = `- ${item.productName} | ${item.tireType || 'N/A'} ${item.tireSize || ''} | Cant: ${item.quantity} | Subtotal: L ${Number(item.subtotal || 0).toFixed(2)}`;
+        const wrapped = doc.splitTextToSize(detail, 180);
+        doc.text(wrapped, 15, y);
+        y += wrapped.length * 6;
+      });
+    }
+
+    doc.save(`comprobante-entrega-${order.id}.pdf`);
+  };
 
   const addToCart = (productId: string, qty: number = 1) => {
     setCart((prev) => {
@@ -272,7 +363,10 @@ export default function MarketplacePage() {
                                 <p className="text-xs text-orange-600">Pocas ({product.stock})</p>
                               )}
                             </div>
-                            <Badge variant="outline" className="text-xs">{product.lotSize > 1 ? `x${product.lotSize}` : '1'}</Badge>
+                            <Badge variant="outline" className="text-xs">{(() => {
+                              const lotSize = Number(product.lotSize || 1);
+                              return lotSize > 1 ? `x${lotSize}` : '1';
+                            })()}</Badge>
                           </div>
                         </div>
                       </div>
@@ -303,8 +397,28 @@ export default function MarketplacePage() {
                             : `Centro: ${order.pointName || 'Pendiente'}`}
                         </p>
                       </div>
-                      <Badge variant="outline">{order.status}</Badge>
+                      <Badge variant="outline">{getMarketplaceStatusLabel(order.status)}</Badge>
                     </div>
+
+                    {order.status === 'delivered' && order.deliveryReceipt && (
+                      <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 space-y-2">
+                        <p className="text-sm font-medium text-emerald-800 flex items-center gap-1">
+                          <CheckCircle2 className="w-4 h-4" /> Entrega completada
+                        </p>
+                        <p className="text-xs text-emerald-700">Comprobante: {order.deliveryReceipt.code}</p>
+                        {order.customerNotification?.message && (
+                          <p className="text-xs text-emerald-700">{order.customerNotification.message}</p>
+                        )}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-emerald-300 text-emerald-800 hover:bg-emerald-100"
+                          onClick={() => downloadDeliveryReceipt(order)}
+                        >
+                          <Download className="w-4 h-4 mr-1" /> Descargar comprobante
+                        </Button>
+                      </div>
+                    )}
                   </Card>
                 ))
               )}
